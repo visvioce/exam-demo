@@ -1,0 +1,60 @@
+@startuml
+
+' ─────────────────────────────────────────────
+'  管理员管理用户信息时序图 (精简版)
+' ─────────────────────────────────────────────
+
+!theme plain
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "monospace"
+skinparam defaultFontSize 12
+skinparam ArrowColor #000000
+skinparam ParticipantBorderColor #000000
+skinparam ParticipantBackgroundColor #FFFFFF
+skinparam ActorBorderColor #000000
+skinparam SequenceBoxBorderColor #000000
+skinparam SequenceBoxBackgroundColor #FFFFFF
+
+title <b>管理员管理用户信息时序图</b>
+
+actor 管理员 as Admin
+participant "前端\n(Vue3 + Element Plus)" as Frontend
+participant "UserController\n(用户控制器)" as UserController
+participant "UserService\n(用户服务)" as UserService
+database "MySQL\n(数据库)" as MySQL
+
+== 查询用户列表 ==
+Admin -> Frontend : 打开用户管理页面
+Frontend -> UserController : GET /api/users/page
+UserController -> UserService : page(keyword, role)
+UserService -> MySQL : SELECT * FROM users\n分页 + 关键字模糊搜索
+MySQL --> UserService : 返回分页结果
+UserService --> UserController : 返回 PageResult
+UserController --> Frontend : 200 OK
+Frontend --> Admin : 展示用户表格
+
+== 新增用户 ==
+Admin -> Frontend : 点击新增，填写用户信息
+Frontend -> UserController : POST /api/users
+UserController -> UserService : createUser()
+UserService -> MySQL : SELECT 校验用户名唯一
+MySQL --> UserService : 用户名可用
+UserService -> UserService : BCrypt 加密密码
+UserService -> MySQL : INSERT INTO users
+MySQL --> UserService : 保存成功
+UserService --> UserController : 创建成功
+UserController --> Frontend : 200 OK
+Frontend --> Admin : 用户创建成功
+
+== 编辑用户 ==
+Admin -> Frontend : 选择用户，修改昵称/角色
+Frontend -> UserController : PUT /api/users/{id}
+UserController -> UserService : updateUser()
+UserService -> MySQL : UPDATE users SET nickname=?, role=?
+MySQL --> UserService : 更新成功
+UserService --> UserController : 更新成功
+UserController --> Frontend : 200 OK
+Frontend --> Admin : 用户信息更新成功
+
+@enduml

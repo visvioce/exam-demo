@@ -1,0 +1,181 @@
+@startuml 系统总体类图
+
+!theme plain
+skinparam linetype polyline
+skinparam nodesep 25
+skinparam ranksep 25
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "用户与课程" as UC {
+  class User {
+    - id: Long
+    - username: String
+    - password: String
+    - nickname: String
+    - avatar: String
+    - role: String
+    - status: String
+    - createdAt: LocalDateTime
+    - deleted: Integer
+  }
+  class Course {
+    - id: Long
+    - name: String
+    - code: String
+    - description: String
+    - coverUrl: String
+    - teacherId: Long
+    - credits: BigDecimal
+    - status: String
+    - createdAt: LocalDateTime
+    - deadline: LocalDateTime
+    - deleted: Integer
+  }
+  class CourseMember {
+    - id: Long
+    - courseId: Long
+    - studentId: Long
+    - joinedAt: LocalDateTime
+  }
+  User -down- Course : teaches
+  User -down- CourseMember : student
+  Course -down- CourseMember : members
+}
+
+package "试卷与题目" as PQ {
+  class Paper {
+    - id: Long
+    - name: String
+    - description: String
+    - courseId: Long
+    - teacherId: Long
+    - totalScore: BigDecimal
+    - type: String
+    - status: String
+    - createdAt: LocalDateTime
+    - deleted: Integer
+  }
+  class PaperQuestion {
+    - questionId: Long
+    - score: BigDecimal
+  }
+  class Question {
+    - id: Long
+    - content: String
+    - type: String
+    - difficulty: String
+    - score: BigDecimal
+    - teacherId: Long
+    - subject: String
+    - explanation: String
+    - deleted: Integer
+  }
+  class Option {
+    - id: String
+    - text: String
+  }
+  class ScoringCriterion {
+    - point: String
+    - score: BigDecimal
+  }
+  Paper *-down- PaperQuestion
+  Question *-down- Option
+  Question *-down- ScoringCriterion
+  PaperQuestion ..> Question
+}
+
+package "考试与作答" as ES {
+  class Exam {
+    - id: Long
+    - title: String
+    - description: String
+    - courseId: Long
+    - paperId: Long
+    - teacherId: Long
+    - startedAt: LocalDateTime
+    - endedAt: LocalDateTime
+    - duration: Integer
+    - totalScore: BigDecimal
+    - passScore: BigDecimal
+    - status: String
+    - createdAt: LocalDateTime
+    - deleted: Integer
+  }
+  class ExamSession {
+    - id: Long
+    - examId: Long
+    - studentId: Long
+    - startedAt: LocalDateTime
+    - submittedAt: LocalDateTime
+    - score: BigDecimal
+    - totalScore: BigDecimal
+    - status: String
+    - gradingStatus: String
+    - version: Integer
+  }
+  class Answer {
+    - questionId: Long
+    - answer: String
+    - isCorrect: Boolean
+    - score: BigDecimal
+    - questionType: String
+    - gradingStatus: String
+    - teacherComment: String
+  }
+  Exam -down- ExamSession
+  ExamSession *-down- Answer
+  Answer ..> Question
+}
+
+package "系统管理" as SM {
+  class Announcement {
+    - id: Long
+    - title: String
+    - content: String
+    - type: String
+    - priority: String
+    - status: String
+    - publisherId: Long
+    - publishedAt: LocalDateTime
+    - deleted: Integer
+  }
+  class AiConfig {
+    - id: Long
+    - userId: Long
+    - name: String
+    - baseUrl: String
+    - apiKey: String
+    - models: List<String>
+    - activeModel: String
+    - createdAt: LocalDateTime
+    --
+    + hasActiveModel(): boolean
+  }
+  class Carousel {
+    - id: Long
+    - title: String
+    - imageUrl: String
+    - linkUrl: String
+    - description: String
+    - sortOrder: Integer
+    - status: String
+    - startAt: LocalDateTime
+    - endAt: LocalDateTime
+    - deleted: Integer
+  }
+}
+
+' ─── 跨包关联 ───
+User -[hidden]right- Paper
+User ..> Exam : creates
+Course ..> Exam : contains
+Paper ..> Exam : used by
+User ..> Paper : creates
+Course ..> Paper : contains
+User ..> Question : creates
+User ..> ExamSession : studentId
+User ..> Announcement : publisherId
+User ..> AiConfig : userId
+
+@enduml

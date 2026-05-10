@@ -1,0 +1,108 @@
+@startuml 题库管理模块类图
+
+!theme plain
+left to right direction
+skinparam linetype polyline
+skinparam nodesep 30
+skinparam ranksep 40
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "用户与配置" as UA {
+  class User {
+    - id: Long
+    - username: String
+    - password: String
+    - nickname: String
+    - avatar: String
+    - role: String
+    - status: String
+    - createdAt: LocalDateTime
+    - deleted: Integer
+  }
+  class AiConfig {
+    - id: Long
+    - userId: Long
+    - name: String
+    - baseUrl: String
+    - apiKey: String
+    - models: List<String>
+    - activeModel: String
+    - createdAt: LocalDateTime
+    --
+    + hasActiveModel(): boolean
+  }
+  User -down- AiConfig : configures
+}
+
+package "课程与试卷" as CP {
+  class Course {
+    - id: Long
+    - name: String
+    - code: String
+    - description: String
+    - coverUrl: String
+    - teacherId: Long
+    - credits: BigDecimal
+    - status: String
+    - createdAt: LocalDateTime
+    - deadline: LocalDateTime
+    - deleted: Integer
+  }
+  class Paper {
+    - id: Long
+    - name: String
+    - description: String
+    - courseId: Long
+    - teacherId: Long
+    - totalScore: BigDecimal
+    - type: String
+    - status: String
+    - createdAt: LocalDateTime
+    - deleted: Integer
+  }
+  class PaperQuestion {
+    - questionId: Long
+    - score: BigDecimal
+  }
+  class Exam {
+    - id: Long
+    - paperId: Long
+  }
+  Course -down- Paper : contains
+  Paper *-down- PaperQuestion
+  Paper -down- Exam : used by
+  PaperQuestion ..> Question : ref
+}
+
+package "题库" as QB {
+  class Question {
+    - id: Long
+    - content: String
+    - type: String
+    - difficulty: String
+    - score: BigDecimal
+    - teacherId: Long
+    - subject: String
+    - explanation: String
+    - deleted: Integer
+  }
+  class Option {
+    - id: String
+    - text: String
+  }
+  class ScoringCriterion {
+    - point: String
+    - score: BigDecimal
+  }
+  Question *-down- Option
+  Question *-down- ScoringCriterion
+}
+
+' ─── 跨包关联 ───
+User -[hidden]right- Course
+User ..> Course : teaches
+User ..> Question : creates
+User ..> Paper : creates
+
+@enduml

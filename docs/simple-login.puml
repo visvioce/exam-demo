@@ -1,0 +1,42 @@
+@startuml
+
+' ─────────────────────────────────────────────
+'  用户登录认证时序图 (精简版)
+' ─────────────────────────────────────────────
+
+!theme plain
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "monospace"
+skinparam defaultFontSize 12
+skinparam ArrowColor #000000
+skinparam ParticipantBorderColor #000000
+skinparam ParticipantBackgroundColor #FFFFFF
+skinparam ActorBorderColor #000000
+skinparam SequenceBoxBorderColor #000000
+skinparam SequenceBoxBackgroundColor #FFFFFF
+
+title <b>用户登录认证时序图</b>
+
+actor 用户 as User
+participant "前端\n(Vue3 + Element Plus)" as Frontend
+participant "AuthController\n(认证控制器)" as AuthController
+participant "UserService\n(用户服务)" as UserService
+database "MySQL\n(数据库)" as MySQL
+participant "JwtUtil\n(JWT 工具)" as JwtUtil
+
+User -> Frontend : 输入用户名密码
+Frontend -> Frontend : 表单校验
+Frontend -> AuthController : POST /api/auth/login
+AuthController -> UserService : login(username, password)
+UserService -> MySQL : selectByUsername()
+MySQL --> UserService : 返回用户信息
+UserService -> UserService : BCrypt 密码验证
+UserService -> JwtUtil : generateToken(userId, role)
+JwtUtil --> UserService : 返回 JWT Token
+UserService --> AuthController : 返回 token + 用户信息
+AuthController --> Frontend : 200 OK
+Frontend -> Frontend : 存储 token，跳转首页
+Frontend --> User : 登录成功
+
+@enduml

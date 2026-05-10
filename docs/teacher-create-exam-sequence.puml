@@ -1,0 +1,133 @@
+@startuml
+
+' ─────────────────────────────────────────────
+'  教师组卷发布考试时序图 — Black & White Style
+'  南方职业学院在线考试系统
+' ─────────────────────────────────────────────
+
+!theme plain
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "monospace"
+skinparam defaultFontSize 11
+skinparam sequenceMessageAlign center
+skinparam ArrowColor #000000
+skinparam ArrowThickness 1.5
+skinparam LifeLineBorderColor #888888
+skinparam LifeLineBackgroundColor #FFFFFF
+skinparam ParticipantBorderColor #000000
+skinparam ParticipantBackgroundColor #FFFFFF
+skinparam ParticipantFontColor #000000
+skinparam ActorBorderColor #000000
+skinparam ActorBackgroundColor #FFFFFF
+skinparam ActorFontColor #000000
+skinparam SequenceBoxBorderColor #000000
+skinparam SequenceBoxBackgroundColor #FFFFFF
+
+title <size:16><b>教师组卷发布考试时序图</b></size>\n<size:11>南方职业学院在线考试系统  |  题目管理 → 试卷管理 → 考试管理</size>
+
+actor "教师\n(Teacher)" as Teacher
+participant "ManualPaperForm.vue\n(组卷页面)" as PaperForm
+participant "API 层\n(paper.ts / question.ts / exam.ts)" as API
+participant "QuestionController\n(题目管理)" as QuestionController
+participant "QuestionService\n(题目服务)" as QuestionService
+participant "QuestionMapper\n(题目数据层)" as QuestionMapper
+participant "PaperController\n(试卷管理)" as PaperController
+participant "PaperService\n(试卷服务)" as PaperService
+participant "PaperMapper\n(试卷数据层)" as PaperMapper
+participant "ExamController\n(考试管理)" as ExamController
+participant "ExamService\n(考试服务)" as ExamService
+participant "ExamMapper\n(考试数据层)" as ExamMapper
+database "MySQL\n(数据库)" as MySQL
+
+' ═══ 阶段一: 题库管理 ═══
+== 阶段一: 题库管理 ==
+
+Teacher -> PaperForm : 1. 添加题目到题库
+PaperForm -> API : 2. POST /api/questions
+API -> QuestionController : 3. save(question)
+QuestionController -> QuestionService : 4. save(question)
+QuestionService -> QuestionMapper : 5. insert(question)
+QuestionMapper -> MySQL : 6. INSERT INTO questions\n(content, type, answer, ...)
+MySQL --> QuestionMapper : 返回结果
+QuestionMapper --> QuestionService : 返回成功
+QuestionService --> QuestionController : 返回 Boolean
+QuestionController --> API : Result.success(true)
+API --> PaperForm : 200 OK
+PaperForm --> Teacher : 题目添加成功
+
+' ═══ 阶段二: 组卷 ═══
+== 阶段二: 组卷 (手动 / 自动) ==
+
+alt 组卷方式: 手动组卷
+    Teacher -> PaperForm : 7. 填写试卷信息，手动选择题目
+    PaperForm -> API : 8. POST /api/papers
+    API -> PaperController : 9. save(paper)
+    PaperController -> PaperService : 10. save(paper)
+    PaperService -> PaperMapper : 11. insert(paper)
+    PaperMapper -> MySQL : 12. INSERT INTO papers\n(name, questions, total_score, ...)
+    MySQL --> PaperMapper : 返回结果
+    PaperMapper --> PaperService : 返回成功
+    PaperService --> PaperController : 返回 Boolean
+    PaperController --> API : Result.success(true)
+    API --> PaperForm : 200 OK
+    PaperForm --> Teacher : 试卷创建成功 (状态: DRAFT)
+
+else 组卷方式: 自动组卷
+    Teacher -> PaperForm : 7. 配置组卷规则\n(题型/数量/难度/分数)
+    PaperForm -> API : 8. POST /api/papers/auto-generate
+    API -> PaperController : 9. autoGenerate(request)
+    PaperController -> PaperService : 10. autoGenerate(request, teacherId)
+    PaperService -> QuestionService : 11. list(wrapper)\n按 type/teacherId/subject/difficulty 筛选
+    QuestionService --> PaperService : 返回符合条件的题目列表
+    PaperService -> PaperService : 12. Collections.shuffle()\nFisher-Yates 洗牌随机抽题
+    PaperService -> PaperService : 13. 计算总分，构建 Paper 对象
+    PaperService -> PaperMapper : 14. insert(paper)
+    PaperMapper -> MySQL : 15. INSERT INTO papers
+    MySQL --> PaperMapper : 返回结果
+    PaperMapper --> PaperService : 返回成功
+    PaperService --> PaperController : 返回 Paper 对象
+    PaperController --> API : Result.success(paper)
+    API --> PaperForm : 200 OK
+    PaperForm --> Teacher : 自动组卷成功 (状态: DRAFT)
+end
+
+' ═══ 阶段三: 创建考试 ═══
+== 阶段三: 创建考试 ==
+
+Teacher -> PaperForm : 15. 填写考试信息\n(名称/课程/时间/时长)
+PaperForm -> API : 16. POST /api/exams
+API -> ExamController : 17. save(examRequest)
+ExamController -> PaperService : 18. getById(paperId)\n获取试卷确认总分
+PaperService --> ExamController : 返回 Paper (含 totalScore)
+ExamController -> ExamService : 19. save(exam)\nstatus = DRAFT
+ExamService -> ExamMapper : 20. insert(exam)
+ExamMapper -> MySQL : 21. INSERT INTO exams\n(title, paper_id, course_id, ...)
+MySQL --> ExamMapper : 返回结果
+ExamMapper --> ExamService : 返回成功
+ExamService --> ExamController : 返回 Boolean
+ExamController --> API : Result.success(true)
+API --> PaperForm : 200 OK
+PaperForm --> Teacher : 考试创建成功 (状态: 草稿)
+
+' ═══ 阶段四: 发布考试 ═══
+== 阶段四: 发布考试 ==
+
+Teacher -> PaperForm : 22. 点击发布考试
+PaperForm -> API : 23. POST /api/exams/{id}/publish
+API -> ExamController : 24. publishExam(id)
+ExamController -> ExamService : 25. checkOwnership(id, userId, role)\n验证权限
+ExamService --> ExamController : 权限验证通过
+ExamController -> ExamService : 26. publishExam(id)
+ExamService -> ExamService : 27. 校验:\n- status == DRAFT?\n- 时间有效?\n- startedAt < endedAt?
+ExamService -> ExamMapper : 28. UPDATE exams\nSET status = 'PUBLISHED'
+ExamMapper -> MySQL : 29. UPDATE exams SET status='PUBLISHED'\nWHERE id=?
+MySQL --> ExamMapper : 返回结果
+ExamMapper --> ExamService : 返回成功
+ExamService --> ExamController : 发布成功
+ExamController --> API : Result.success()
+API --> PaperForm : 200 OK
+PaperForm --> Teacher : 考试发布成功\n学生端可见
+
+footer 南方职业学院 © 2026  |  权限: @RequireRole(ADMIN, TEACHER)  |  数据隔离: 教师只能操作自己的数据
+@enduml

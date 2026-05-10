@@ -1,0 +1,193 @@
+@startuml
+
+' ─────────────────────────────────────────────
+'  学生参加考试时序图 — Black & White Style
+'  南方职业学院在线考试系统
+' ─────────────────────────────────────────────
+
+!theme plain
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "monospace"
+skinparam defaultFontSize 11
+skinparam sequenceMessageAlign center
+skinparam ArrowColor #000000
+skinparam ArrowThickness 1.5
+skinparam LifeLineBorderColor #888888
+skinparam LifeLineBackgroundColor #FFFFFF
+skinparam ParticipantBorderColor #000000
+skinparam ParticipantBackgroundColor #FFFFFF
+skinparam ParticipantFontColor #000000
+skinparam ActorBorderColor #000000
+skinparam ActorBackgroundColor #FFFFFF
+skinparam ActorFontColor #000000
+skinparam SequenceBoxBorderColor #000000
+skinparam SequenceBoxBackgroundColor #FFFFFF
+
+title <size:16><b>学生参加考试时序图</b></size>\n<size:11>南方职业学院在线考试系统  |  查看考试 → 开始考试 → 答题 → 提交 → 查看成绩</size>
+
+actor "学生\n(Student)" as Student
+participant "ExamList.vue\n(考试列表)" as ExamList
+participant "ExamTake.vue\n(答题页面)" as ExamTake
+participant "ExamResults.vue\n(成绩页面)" as ExamResults
+participant "API 层\n(exam.ts)" as API
+participant "ExamController\n(考试控制器)" as ExamController
+participant "ExamService\n(考试服务)" as ExamService
+participant "ExamSessionService\n(会话服务)" as ExamSessionService
+participant "PaperService\n(试卷服务)" as PaperService
+participant "QuestionService\n(题目服务)" as QuestionService
+participant "CourseService\n(课程服务)" as CourseService
+database "MySQL\n(数据库)" as MySQL
+
+' ═══ 阶段一: 查看考试列表 ═══
+== 阶段一: 查看我的考试 ==
+
+Student -> ExamList : 1. 进入考试列表
+ExamList -> API : 2. GET /api/exams/my
+API -> ExamController : 3. getMyExams()
+ExamController -> ExamService : 4. getMyExams(studentId)
+ExamService -> CourseService : 5. getMyCourses(studentId)\n获取学生已加入的课程
+CourseService --> ExamService : 返回课程列表
+ExamService -> ExamService : 6. 查询课程的已发布考试
+ExamService -> ExamSessionService : 7. 批量查询考试会话\n(检查是否已参加过)
+ExamSessionService --> ExamService : 返回 sessionMap
+ExamService -> ExamService : 8. 设置 studentExamStatus\n(NOT_STARTED / IN_PROGRESS / SUBMITTED)
+ExamService --> ExamController : 返回考试列表 (附带状态)
+ExamController --> API : Result.success(exams)
+API --> ExamList : 200 OK
+ExamList --> Student : 展示考试列表\n及个人考试状态
+
+' ═══ 阶段二: 开始考试 ═══
+== 阶段二: 开始考试 ==
+
+Student -> ExamList : 9. 点击「开始考试」
+ExamList -> API : 10. POST /api/exams/{id}/start
+API -> ExamController : 11. startExam(id)
+ExamController -> ExamService : 12. startExam(examId, studentId)
+
+ExamService -> ExamService : 13. 校验考试状态\n(PUBLISHED / STARTED)
+
+alt 开始考试: 未加入课程
+    ExamService -> CourseService : isCourseMember(courseId, studentId)
+    CourseService --> ExamService : false
+    ExamService --> ExamController : <color:red>BusinessException("请先加入对应课程")</color>
+else 开始考试: 考试未开始
+    ExamService --> ExamController : <color:red>BusinessException("考试未开始")</color>
+else 开始考试: 已参加过
+    ExamService -> ExamSessionService : getByExamIdAndStudentId()
+    ExamSessionService --> ExamService : 已提交
+    ExamService --> ExamController : <color:red>BusinessException("已参加过该考试")</color>
+else 开始考试: 可以开始
+    ExamService -> ExamSessionService : 14. save(session)\nstatus=IN_PROGRESS, startedAt=now
+    ExamSessionService -> MySQL : 15. INSERT INTO exam_sessions\n(student_id, exam_id, status, ...)
+    MySQL --> ExamSessionService : 返回结果
+    ExamSessionService --> ExamService : 返回 ExamSession
+    ExamService --> ExamController : 返回 ExamSession
+    ExamController --> API : Result.success(session)
+    API --> ExamList : 200 OK
+    ExamList -> ExamTake : 16. 跳转到答题页面
+end
+
+' ═══ 阶段三: 获取题目 ═══
+== 阶段三: 获取题目并答题 ==
+
+ExamTake -> API : 17. GET /api/exams/{id}/questions
+API -> ExamController : 18. getExamQuestions(id)
+ExamController -> ExamService : 19. getExamQuestions(examId, studentId)
+ExamService -> CourseService : 20. isCourseMember()
+CourseService --> ExamService : 确认课程成员身份
+ExamService -> ExamService : 21. 校验考试状态(PUBLISHED/STARTED)\n校验: startedAt < now < endedAt + 30s
+ExamService -> ExamSessionService : 22. getByExamIdAndStudentId()
+ExamSessionService --> ExamService : 返回 session (必须 IN_PROGRESS)
+ExamService -> ExamService : 23. 校验会话超时\nnow < startedAt + duration
+ExamService -> PaperService : 24. getById(paperId)
+PaperService --> ExamService : 返回 Paper (含 questionIds)
+ExamService -> QuestionService : 25. listByIds(questionIds)\n批量查询题目
+QuestionService --> ExamService : 返回题目列表
+ExamService -> ExamService : 26. QuestionForExamResponse.from()\n移除正确答案，只保留题目内容
+ExamService --> ExamController : 返回题目列表 (无答案)
+ExamController --> API : Result.success(questions)
+API --> ExamTake : 200 OK (题目数据)
+ExamTake --> Student : 展示考试题目\n倒计时开始
+
+' ═══ 阶段四: 自动保存 ═══
+== 阶段四: 自动保存答案 (定时) ==
+
+loop 每30秒自动保存
+    ExamTake -> API : 27. PUT /api/exams/{id}/auto-save
+    API -> ExamController : 28. autoSaveExam(id, answers)
+    ExamController -> ExamService : 29. autoSaveExam(examId, studentId, answers)
+    ExamService -> ExamSessionService : 30. getByExamIdAndStudentId()
+    ExamSessionService --> ExamService : 返回 session
+    ExamService -> ExamService : 31. 校验:\n- 考试未结束?\n- 未超时?\n- 状态=IN_PROGRESS?
+    ExamService -> ExamSessionService : 32. updateById(session)\n仅更新 answers 字段
+    ExamSessionService -> MySQL : 33. UPDATE exam_sessions\nSET answers=?\nWHERE id=?
+    MySQL --> ExamSessionService : 返回结果
+    ExamSessionService --> ExamService : 更新成功
+    ExamService --> ExamController : 保存成功
+    ExamController --> API : Result.success()
+    API --> ExamTake : 200 OK
+    ExamTake -> ExamTake : <color:green>自动保存完成</color>
+end
+
+' ═══ 阶段五: 提交考试 ═══
+== 阶段五: 提交考试 ==
+
+Student -> ExamTake : 34. 检查答案，点击交卷
+ExamTake -> API : 35. POST /api/exams/{id}/submit
+API -> ExamController : 36. submitExam(id, answers)
+ExamController -> ExamService : 37. submitExam(examId, studentId, answers)
+ExamService -> ExamSessionService : 38. getByExamIdAndStudentId()
+ExamSessionService --> ExamService : 返回 session
+
+ExamService -> ExamService : 39. validateAnswers()\n验证答案格式/题目归属
+
+ExamService -> QuestionService : 40. listByIds(questionIds)\n批量查询题目 (含正确答案)
+QuestionService --> ExamService : 返回题目 Map
+
+ExamService -> ExamService : 41. 自动评分客观题
+
+group alt [评分逻辑]
+    group #EEEEEE [单选题]
+        ExamService -> ExamService : checkAnswer(): 忽略大小写比较
+    end
+    group #EEEEEE [多选题]
+        ExamService -> ExamService : checkAnswer(): 排序后比较JSON数组
+    end
+    group #EEEEEE [判断题]
+        ExamService -> ExamService : normalizeTrueFalse(): A/正确→TRUE
+    end
+    group #EEEEEE [填空题]
+        ExamService -> ExamService : isFillBlankCorrect(): 多答案/分隔符匹配
+    end
+    group #EEEEEE [简答题 (主观题)]
+        ExamService -> ExamService : gradingStatus=PENDING\n分数暂为null
+    end
+end
+
+ExamService -> ExamSessionService : 42. updateById(session)\nstatus=SUBMITTED/GRADED\n乐观锁防并发
+ExamSessionService -> MySQL : 43. UPDATE exam_sessions\nSET answers=?, score=?, status=?\nWHERE id=? AND version=?
+MySQL --> ExamSessionService : 返回结果
+ExamSessionService --> ExamService : 提交成功
+ExamService --> ExamController : 提交成功
+ExamController --> API : Result.success()
+API --> ExamTake : 200 OK
+ExamTake -> ExamResults : 44. 跳转到成绩页
+
+' ═══ 阶段六: 查看成绩 ═══
+== 阶段六: 查看考试结果 ==
+
+ExamResults -> API : 45. GET /api/exams/{id}/review-questions
+API -> ExamController : 46. getReviewQuestions(id)
+ExamController -> ExamService : 47. checkReviewPermission()\n(ADMIN全权/TEACHER自己/STUDENT已提交)
+ExamService -> PaperService : 48. getById(paperId)
+PaperService --> ExamService : 返回试卷
+ExamService -> QuestionService : 49. listByIds(questionIds)
+QuestionService --> ExamService : 返回完整题目 (含答案+解析)
+ExamService --> ExamController : 返回题目列表
+ExamController --> API : Result.success(questions)
+API --> ExamResults : 200 OK (含答案和解析)
+ExamResults --> Student : 展示成绩与答题回顾\n客观题得分 + 主观题状态
+
+footer 南方职业学院 © 2026  |  权限: @RequireRole(STUDENT)  |  特性: 自动保存 / 乐观锁 / 30秒宽限 / Fisher-Yates洗牌
+@enduml
