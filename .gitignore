@@ -1,3 +1,37 @@
+# Java / Maven
+/backend/target/
+/backend/*.jar.original
+
+# Node
+/frontend/node_modules/
+node_modules/
+
+# Build outputs
+/frontend/dist/
+
+# Logs
+logs/
+
+# Database dumps / large data
+/database/full-data.sql
+/database/data集合/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+*.keystore
+keys/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.log
+*.swp
+.DS_Store
 # 编译输出
 backend/target/
 frontend/dist/
