@@ -19,16 +19,17 @@
       </div>
     </div>
 
+    <!-- 断网警告 -->
+    <el-alert v-if="!isOnline" title="网络已断开，答案将保存在本地，请检查网络连接" type="warning" :closable="false" show-icon />
+
     <!-- 题目区域 -->
     <div class="questions-area" v-if="!loading && questions.length > 0">
-      <el-card v-for="(question, index) in questions" :key="question.id" class="question-card">
-        <template #header>
-          <div class="question-header">
-            <span class="question-index">第 {{ index + 1 }} 题</span>
-            <el-tag :type="getTypeColor(question.type)" size="small">{{ getTypeName(question.type) }}</el-tag>
-            <span class="question-score">（{{ questionScores[index] }}分）</span>
-          </div>
-        </template>
+      <div v-for="(question, index) in questions" :key="question.id" class="question-card">
+        <div class="question-header">
+          <span class="question-index">{{ index + 1 }}.</span>
+          <el-tag :type="getTypeColor(question.type)" size="small">{{ getTypeName(question.type) }}</el-tag>
+          <span class="question-score">（{{ questionScores[index] }}分）</span>
+        </div>
 
         <div class="question-content" v-html="sanitizeHtml(question.content)"></div>
 
@@ -54,7 +55,7 @@
           <el-radio value="错误">错误</el-radio>
         </el-radio-group>
 
-        <!-- 填空题：根据空数显示多个输入框 -->
+        <!-- 填空题 -->
         <div v-else-if="question.type === 'FILL_BLANK'" class="fill-blank-inputs">
           <div v-for="(_, blankIndex) in getFillBlankCount(question)" :key="blankIndex" class="fill-blank-item">
             <span class="blank-label">第 {{ blankIndex + 1 }} 空：</span>
@@ -62,6 +63,7 @@
               :model-value="getFillBlankAnswer(index, blankIndex)"
               @update:model-value="setFillBlankAnswer(index, blankIndex, $event)"
               placeholder="请输入答案"
+              class="blank-input"
             />
           </div>
         </div>
@@ -71,25 +73,26 @@
           v-else-if="question.type === 'ESSAY'"
           v-model="answers[index]"
           type="textarea"
-          :rows="6"
+          :rows="5"
           placeholder="请输入答案"
         />
-      </el-card>
+      </div>
     </div>
 
     <!-- 答题卡 -->
     <div class="answer-sheet" v-if="!loading && questions.length > 0">
-      <el-card>
-        <template #header>
-          <div class="answer-sheet-header">
-            <span>答题卡</span>
-            <div v-if="formattedLastSaveTime" class="auto-save-status">
-              <el-icon v-if="isSaving" class="is-loading"><Loading /></el-icon>
-              <el-icon v-else><Check /></el-icon>
-              <span>{{ isSaving ? '保存中...' : `已保存 ${formattedLastSaveTime}` }}</span>
-            </div>
+      <div class="answer-sheet-card">
+        <div class="answer-sheet-header">
+          <span>答题卡</span>
+          <div v-if="formattedLastSaveTime || saveError" class="auto-save-status">
+            <el-icon v-if="isSaving" class="auto-save-icon is-loading"><Loading /></el-icon>
+            <el-icon v-else-if="saveError" class="auto-save-error"><WarningFilled /></el-icon>
+            <el-icon v-else class="auto-save-ok"><Check /></el-icon>
+            <span v-if="saveError" class="auto-save-error-text">保存失败</span>
+            <span v-else-if="saveRetrying" class="auto-save-retry-text">重试保存中...</span>
+            <span v-else>{{ isSaving ? '保存中...' : `已保存 ${formattedLastSaveTime}` }}</span>
           </div>
-        </template>
+        </div>
         <div class="answer-grid">
           <div
             v-for="(_, index) in questions"
@@ -110,7 +113,7 @@
             提交试卷
           </el-button>
         </div>
-      </el-card>
+      </div>
     </div>
 
     <!-- 提交确认对话框 -->
@@ -126,15 +129,15 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { examApi, examSessionApi } from '@/api/exam'
 import { useAuthStore } from '@/stores/auth'
-import { ElMessage } from 'element-plus'
-import { Check, Loading } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Check, Loading, WarningFilled } from '@element-plus/icons-vue'
 import { sanitizeHtml } from '@/utils/sanitize'
 import { getErrorMessage } from '@/utils/error'
-import { parseAnswerValue, serializeAnswerValue, isAnswerFilled, type AnswerValue } from '@/utils/format'
-import type { Exam, Question, ExamSession } from '@/types'
+import { parseAnswerValue, serializeAnswerValue, isAnswerFilled, getTypeName, getTypeColor, type AnswerValue } from '@/utils/format'
+import type { Exam, QuestionForExam, ExamSession } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -142,10 +145,11 @@ const authStore = useAuthStore()
 
 const loading = ref(false)
 const submitting = ref(false)
+const submitted = ref(false)
 const confirmDialogVisible = ref(false)
 
 const exam = ref<Exam | null>(null)
-const questions = ref<Question[]>([])
+const questions = ref<QuestionForExam[]>([])
 const questionScores = ref<number[]>([])
 const answers = ref<AnswerValue[]>([])
 const session = ref<ExamSession | null>(null)
@@ -156,6 +160,9 @@ const autoSaveInterval = ref<ReturnType<typeof setInterval> | null>(null)
 const pendingTimeouts = ref<ReturnType<typeof setTimeout>[]>([])
 const lastSaveTime = ref<Date | null>(null)
 const isSaving = ref(false)
+const saveError = ref(false)
+const saveRetrying = ref(false)
+const isOnline = ref(true)
 const AUTO_SAVE_INTERVAL = 30000 // 30秒自动保存一次
 
 // 延迟跳转（可在 onUnmounted 时清理）
@@ -192,28 +199,6 @@ const unansweredCount = computed(() => {
   return answers.value.filter((_, i) => !isAnswered(i)).length
 })
 
-function getTypeName(type: string) {
-  const map: Record<string, string> = {
-    SINGLE_CHOICE: '单选题',
-    MULTIPLE_CHOICE: '多选题',
-    TRUE_FALSE: '判断题',
-    FILL_BLANK: '填空题',
-    ESSAY: '简答题'
-  }
-  return map[type] || type
-}
-
-function getTypeColor(type: string) {
-  const map: Record<string, string> = {
-    SINGLE_CHOICE: 'primary',
-    MULTIPLE_CHOICE: 'success',
-    TRUE_FALSE: 'warning',
-    FILL_BLANK: 'info',
-    ESSAY: 'danger'
-  }
-  return map[type] || ''
-}
-
 // 使用统一的答案解析函数
 const normalizeAnswer = parseAnswerValue
 
@@ -229,7 +214,7 @@ function scrollToQuestion(index: number) {
 }
 
 // 获取填空题的空数（使用后端返回的 blankCount 字段）
-function getFillBlankCount(question: Question): number {
+function getFillBlankCount(question: QuestionForExam): number {
   if (question.type === 'FILL_BLANK' && question.blankCount != null) {
     return question.blankCount
   }
@@ -285,48 +270,41 @@ async function loadExam(): Promise<void> {
     }
 
     // 加载考试题目
-    if (exam.value?.paperId) {
-      try {
-        // 使用学生专用的获取考试题目接口
-        const questionsRes = await examApi.getQuestions(examId.value)
-        questions.value = questionsRes.data
+    try {
+      const questionsRes = await examApi.getQuestions(examId.value)
+      questions.value = questionsRes.data
 
-        // 初始化答案数组和题目分数
-        answers.value = questions.value.map(q => {
-          if (q.type === 'MULTIPLE_CHOICE') return []
-          return ''
-        })
+      // 初始化答案数组和题目分数
+      answers.value = questions.value.map(q => {
+        if (q.type === 'MULTIPLE_CHOICE') return []
+        return ''
+      })
 
-        // 初始化题目分数
-        questionScores.value = questions.value.map(q => q.score || 0)
+      // 初始化题目分数
+      questionScores.value = questions.value.map(q => q.score || 0)
 
-        // 检查是否有题目
-        if (questions.value.length === 0) {
-          ElMessage.warning('该考试暂无题目，请联系教师')
-          delayedPush('/exam')
-          return
-        }
-
-        // 如果考试会话中有已保存的答案，加载它们（优先于本地存储）
-        if (session.value?.answers && session.value.answers.length > 0) {
-          session.value.answers.forEach((savedAnswer) => {
-            const index = questions.value.findIndex(q => q.id === savedAnswer.questionId)
-            if (index !== -1) {
-              const question = questions.value[index]
-              if (question) {
-                answers.value[index] = normalizeAnswer(question.type, savedAnswer.answer)
-              }
-            }
-          })
-          hasServerAnswers.value = true
-        }
-      } catch (questionsError: unknown) {
-        ElMessage.error(getErrorMessage(questionsError, '加载题目失败'))
+      // 检查是否有题目
+      if (questions.value.length === 0) {
+        ElMessage.warning('该考试暂无题目，请联系教师')
         delayedPush('/exam')
         return
       }
-    } else {
-      ElMessage.warning('该考试未配置试卷，请联系教师')
+
+      // 如果考试会话中有已保存的答案，加载它们（优先于本地存储）
+      if (session.value?.answers && session.value.answers.length > 0) {
+        session.value.answers.forEach((savedAnswer) => {
+          const index = questions.value.findIndex(q => q.id === savedAnswer.questionId)
+          if (index !== -1) {
+            const question = questions.value[index]
+            if (question) {
+              answers.value[index] = normalizeAnswer(question.type, savedAnswer.answer)
+            }
+          }
+        })
+        hasServerAnswers.value = true
+      }
+    } catch (questionsError: unknown) {
+      ElMessage.error(getErrorMessage(questionsError, '加载题目失败'))
       delayedPush('/exam')
       return
     }
@@ -402,7 +380,7 @@ function restoreFromLocal() {
 }
 
 // 自动保存答案到服务器
-async function autoSaveAnswers() {
+async function autoSaveAnswers(retryCount = 0) {
   if (isSaving.value || submitting.value) return
 
   isSaving.value = true
@@ -410,9 +388,19 @@ async function autoSaveAnswers() {
     const answerData = buildAnswerData()
     await examApi.autoSave(examId.value, answerData)
     lastSaveTime.value = new Date()
-    saveToLocal() // 同时保存到本地
+    saveError.value = false
+    saveRetrying.value = false
+    saveToLocal()
   } catch {
-    // 自动保存失败不提示错误，避免干扰考试
+    if (retryCount < 3) {
+      saveRetrying.value = true
+      const delay = Math.pow(2, retryCount) * 1000
+      await new Promise(resolve => setTimeout(resolve, delay))
+      isSaving.value = false
+      return autoSaveAnswers(retryCount + 1)
+    }
+    saveError.value = true
+    saveRetrying.value = false
   } finally {
     isSaving.value = false
   }
@@ -474,6 +462,7 @@ async function confirmSubmit() {
     localStorage.removeItem(LOCAL_STORAGE_KEY.value)
 
     ElMessage.success('提交成功')
+    submitted.value = true
     router.push('/exam')
   } catch (error: unknown) {
     ElMessage.error(getErrorMessage(error, '提交失败'))
@@ -486,32 +475,62 @@ async function confirmSubmit() {
 
 // 防止意外关闭页面
 function handleBeforeUnload(e: BeforeUnloadEvent) {
-  if (answers.value.some((_, i) => isAnswered(i))) {
-    // 仅提示确认；实际保存由自动保存与本地存储兜底
-    e.preventDefault()
-    e.returnValue = ''
+    if (answers.value.some((_, i) => isAnswered(i))) {
+      e.preventDefault()
+      e.returnValue = ''
+    }
   }
-}
+
+onBeforeRouteLeave((_to, _from, next) => {
+    if (!submitted.value) {
+      ElMessageBox.confirm(
+        '您正在进行考试，离开页面将丢失未提交的答案，确定要离开吗？',
+        '警告',
+        { confirmButtonText: '确定离开', cancelButtonText: '继续考试', type: 'warning' }
+      ).then(() => {
+        stopAutoSave()
+        next()
+      }).catch(() => {
+        next(false)
+      })
+    } else {
+      next()
+    }
+  })
 
 // 监听答案变化，保存到本地
 watch(answers, () => {
-  saveToLocal()
-}, { deep: true })
+    saveToLocal()
+  }, { deep: true })
+
+const handleOnline = () => {
+    isOnline.value = true
+    ElMessage.success('网络已恢复')
+    autoSaveAnswers()
+  }
+
+const handleOffline = () => {
+    isOnline.value = false
+    ElMessage.warning('网络已断开，答案将保存在本地，请检查网络连接')
+  }
 
 onMounted(() => {
-  loadExam().then(() => {
-    // 加载完成后启动自动保存
-    startAutoSave()
+    loadExam().then(() => {
+      startAutoSave()
+    })
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
   })
-  window.addEventListener('beforeunload', handleBeforeUnload)
-})
 
 onUnmounted(() => {
-  stopAutoSave()
-  pendingTimeouts.value.forEach(clearTimeout)
-  pendingTimeouts.value = []
-  window.removeEventListener('beforeunload', handleBeforeUnload)
-})
+    stopAutoSave()
+    pendingTimeouts.value.forEach(clearTimeout)
+    pendingTimeouts.value = []
+    window.removeEventListener('beforeunload', handleBeforeUnload)
+    window.removeEventListener('online', handleOnline)
+    window.removeEventListener('offline', handleOffline)
+  })
 </script>
 
 <style scoped lang="scss">
@@ -585,36 +604,25 @@ onUnmounted(() => {
     padding: 100px 40px 80px;
 
     .question-card {
-      margin-bottom: $spacing-xl;
+      padding: $spacing-lg;
+      margin-bottom: $spacing-lg;
       border: 1px solid $border-color;
-      border-radius: $radius-lg;
+      border-radius: $radius-md;
       background: $bg-primary;
-      transition: box-shadow $transition-fast;
-
-      &:hover {
-        box-shadow: none;
-      }
-
-      :deep(.el-card__header) {
-        padding: $spacing-lg $spacing-xl;
-        border-bottom: 1px solid $border-light;
-        background: $bg-secondary;
-        border-radius: $radius-lg $radius-lg 0 0;
-      }
-
-      :deep(.el-card__body) {
-        padding: $spacing-xl;
-      }
 
       .question-header {
         display: flex;
         align-items: center;
-        gap: $spacing-md;
+        gap: $spacing-sm;
+        padding-bottom: $spacing-md;
+        margin-bottom: $spacing-md;
+        border-bottom: 1px solid $border-light;
 
         .question-index {
           font-size: $font-size-base;
-          font-weight: $font-weight-medium;
+          font-weight: $font-weight-semibold;
           color: $text-primary;
+          min-width: 28px;
         }
 
         .question-score {
@@ -624,7 +632,7 @@ onUnmounted(() => {
       }
 
       .question-content {
-        margin-bottom: $spacing-xl;
+        margin-bottom: $spacing-md;
         font-size: $font-size-base;
         line-height: $line-height-relaxed;
         color: $text-secondary;
@@ -633,20 +641,16 @@ onUnmounted(() => {
       .options {
         display: flex;
         flex-direction: column;
-        gap: $spacing-md;
+        gap: $spacing-xs;
 
         .option-item {
           display: flex;
           align-items: flex-start;
-          padding: $spacing-lg;
-          border: 1px solid $border-color;
-          border-radius: $radius-md;
-          transition: all $transition-fast;
-          background: $bg-primary;
+          padding: $spacing-sm $spacing-md;
+          transition: background $transition-fast;
 
           &:hover {
             background: $bg-hover;
-            border-color: $gray-400;
           }
 
           .option-label {
@@ -719,25 +723,23 @@ onUnmounted(() => {
     width: 280px;
     max-height: calc(100vh - 120px);
     border: 1px solid $border-color;
-    border-radius: $radius-lg;
+    border-radius: $radius-md;
     background: $bg-primary;
     overflow: hidden;
 
-    :deep(.el-card__header) {
-      padding: $spacing-lg $spacing-xl;
-      border-bottom: 1px solid $border-light;
-    }
-
-    :deep(.el-card__body) {
-      padding: $spacing-xl;
-      max-height: calc(100vh - 200px);
-      overflow-y: auto;
+    .answer-sheet-card {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
     }
 
     .answer-sheet-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding: $spacing-md $spacing-lg;
+      border-bottom: 1px solid $border-light;
+      background: $bg-secondary;
 
       span {
         font-size: $font-size-base;
@@ -759,6 +761,22 @@ onUnmounted(() => {
         .is-loading {
           animation: rotating 1s linear infinite;
         }
+
+        .auto-save-error {
+          color: $text-primary;
+        }
+
+        .auto-save-ok {
+          color: $text-primary;
+        }
+
+        .auto-save-error-text {
+          color: $text-primary;
+        }
+
+        .auto-save-retry-text {
+          color: $text-tertiary;
+        }
       }
     }
 
@@ -766,6 +784,9 @@ onUnmounted(() => {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
       gap: $spacing-sm;
+      padding: $spacing-lg;
+      max-height: calc(100vh - 260px);
+      overflow-y: auto;
 
       .answer-item {
         width: 40px;
@@ -795,8 +816,7 @@ onUnmounted(() => {
     }
 
     .answer-legend {
-      margin-top: $spacing-lg;
-      padding-top: $spacing-lg;
+      padding: $spacing-sm $spacing-lg;
       border-top: 1px solid $border-light;
       display: flex;
       justify-content: center;
@@ -821,20 +841,13 @@ onUnmounted(() => {
     }
 
     .submit-area {
-      margin-top: $spacing-xl;
+      padding: $spacing-md $spacing-lg;
+      border-top: 1px solid $border-light;
+      display: flex;
+      justify-content: center;
 
       .el-button {
         width: 100%;
-        height: 44px;
-        font-size: $font-size-base;
-        border-radius: $radius-md;
-        background: $black;
-        border-color: $black;
-
-        &:hover {
-          background: $gray-900;
-          border-color: $gray-900;
-        }
       }
     }
   }

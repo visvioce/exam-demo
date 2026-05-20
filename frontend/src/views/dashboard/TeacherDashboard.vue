@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard">
     <div class="carousel-section" v-if="carousels.length > 0">
-      <el-carousel height="300px" :interval="5000" arrow="hover">
+      <el-carousel height="clamp(200px, 30vw, 400px)" :interval="5000" arrow="hover">
         <el-carousel-item v-for="item in carousels" :key="item.id">
           <div class="carousel-item" @click="handleCarouselClick(item)">
             <img :src="item.imageUrl" :alt="item.title" class="carousel-image" />
@@ -21,7 +21,7 @@
 
     <el-row :gutter="16" class="stats-row">
       <el-col :xs="12" :sm="6">
-        <div class="stat-card ui-interactive-surface">
+        <div class="stat-card">
           <div class="stat-card__icon">
             <el-icon size="20"><User /></el-icon>
           </div>
@@ -33,7 +33,7 @@
       </el-col>
 
       <el-col :xs="12" :sm="6">
-        <div class="stat-card ui-interactive-surface">
+        <div class="stat-card">
           <div class="stat-card__icon">
             <el-icon size="20"><Reading /></el-icon>
           </div>
@@ -45,7 +45,7 @@
       </el-col>
 
       <el-col :xs="12" :sm="6">
-        <div class="stat-card ui-interactive-surface">
+        <div class="stat-card">
           <div class="stat-card__icon">
             <el-icon size="20"><Document /></el-icon>
           </div>
@@ -57,7 +57,7 @@
       </el-col>
 
       <el-col :xs="12" :sm="6">
-        <div class="stat-card ui-interactive-surface">
+        <div class="stat-card">
           <div class="stat-card__icon">
             <el-icon size="20"><Edit /></el-icon>
           </div>
@@ -106,17 +106,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { userApi } from '@/api/user'
-import { courseApi } from '@/api/course'
-import { questionApi } from '@/api/question'
-import { examApi } from '@/api/exam'
 import { carouselApi } from '@/api/carousel'
+import { statsApi } from '@/api/stats'
 import { User, Reading, Document, Edit, Bell } from '@element-plus/icons-vue'
-import { useAuthStore } from '@/stores/auth'
 import type { Carousel } from '@/types'
 
 const router = useRouter()
-const authStore = useAuthStore()
 
 const carousels = ref<Carousel[]>([])
 const stats = ref({
@@ -142,35 +137,13 @@ function handleCarouselClick(item: Carousel) {
   }
 }
 
-async function safeCount(loader: () => Promise<{ data: unknown[] }>) {
-  try {
-    const res = await loader()
-    return Array.isArray(res.data) ? res.data.length : 0
-  } catch {
-    return 0
-  }
-}
-
 async function loadStats() {
-  const role = authStore.user?.role
-
-  if (role === 'ADMIN') {
-    const [userCount, courseCount, questionCount, examCount] = await Promise.all([
-      safeCount(() => userApi.list()),
-      safeCount(() => courseApi.list()),
-      safeCount(() => questionApi.list()),
-      safeCount(() => examApi.list())
-    ])
-    stats.value = { userCount, courseCount, questionCount, examCount }
-    return
+  try {
+    const res = await statsApi.getStats()
+    stats.value = res.data
+  } catch {
+    // stats remain at 0 on failure
   }
-
-  const [courseCount, questionCount, examCount] = await Promise.all([
-    safeCount(() => courseApi.list()),
-    safeCount(() => questionApi.list()),
-    safeCount(() => examApi.list())
-  ])
-  stats.value = { userCount: 0, courseCount, questionCount, examCount }
 }
 
 async function loadCarousels() {

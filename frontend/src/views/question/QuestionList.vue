@@ -7,7 +7,7 @@
           <el-icon><Plus /></el-icon>
           添加题目
         </el-button>
-        <el-button type="success" @click="handleAiGenerate" v-if="hasPermission(['ADMIN', 'TEACHER'])">
+        <el-button type="primary" @click="handleAiGenerate" v-if="hasPermission(['ADMIN', 'TEACHER'])">
           <el-icon><MagicStick /></el-icon>
           AI出题
         </el-button>
@@ -15,7 +15,7 @@
     </div>
 
     <!-- 搜索栏 -->
-    <el-card class="search-card">
+    <div class="search-bar">
       <el-form :model="searchForm" label-width="80px">
         <el-form-item label="题目类型">
           <div class="filter-tabs">
@@ -54,7 +54,7 @@
           <el-button @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
-    </el-card>
+    </div>
 
     <!-- 题目列表 -->
     <el-card class="table-card">
@@ -78,7 +78,6 @@
           </template>
         </el-table-column>
         <el-table-column prop="subject" label="学科" min-width="108" />
-        <el-table-column prop="score" label="分值" min-width="88" />
         <el-table-column label="操作" min-width="120">
           <template #default="{ row }">
             <ActionButtons
@@ -112,7 +111,6 @@
         <el-descriptions-item label="题目类型">{{ getTypeName(currentQuestion.type) }}</el-descriptions-item>
         <el-descriptions-item label="难度">{{ getDifficultyName(currentQuestion.difficulty) }}</el-descriptions-item>
         <el-descriptions-item label="学科">{{ currentQuestion.subject }}</el-descriptions-item>
-        <el-descriptions-item label="分值">{{ currentQuestion.score }}</el-descriptions-item>
         <el-descriptions-item label="题目内容" :span="2">
           <div v-html="sanitizeHtml(currentQuestion.content)"></div>
         </el-descriptions-item>
@@ -183,11 +181,6 @@
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="分值" prop="score">
-              <el-input-number v-model="questionForm.score" :min="1" :max="100" />
-            </el-form-item>
-          </el-col>
         </el-row>
         <el-form-item label="题目内容" prop="content">
           <el-input v-model="questionForm.content" type="textarea" :rows="3" placeholder="请输入题目内容" />
@@ -241,7 +234,7 @@
           <div class="scoring-criteria-editor">
             <div v-for="(criterion, index) in questionForm.scoringCriteria" :key="index" class="criterion-row">
               <el-input v-model="criterion.point" placeholder="评分点" class="criterion-point-input" />
-              <el-input-number v-model="criterion.score" :min="0" :max="questionForm.score" placeholder="分值" />
+              <el-input-number v-model="criterion.score" :min="0" placeholder="分值" />
               <DeleteActionButton aria-label="删除评分点" @click="removeCriterion(index)" />
             </div>
             <el-button type="primary" @click="addCriterion" size="small"><el-icon><Plus /></el-icon>添加评分点</el-button>
@@ -274,12 +267,11 @@
           <div class="ai-preview">
             <el-empty v-if="generatedQuestions.length === 0 && !generating" description="等待AI生成题目..." :image-size="80" />
             <div v-else class="questions-preview">
-              <el-card v-for="(q, index) in generatedQuestions" :key="index" class="question-preview-card">
+              <div v-for="(q, index) in generatedQuestions" :key="index" class="question-preview-item">
                 <div class="question-header">
                   <span class="question-number">第 {{ index + 1 }} 题</span>
                   <el-tag size="small">{{ getTypeName(q.type) }}</el-tag>
                   <el-tag size="small" type="info">{{ getDifficultyName(q.difficulty ?? 'MEDIUM') }}</el-tag>
-                  <el-tag size="small" type="warning">{{ q.score ?? 10 }}分</el-tag>
                 </div>
                 <div class="question-preview-content" v-html="sanitizeHtml(q.content)"></div>
                 <div v-if="q.options && q.options?.length > 0" class="preview-options">
@@ -298,7 +290,7 @@
                   <span v-html="sanitizeHtml(q.explanation)"></span>
                 </div>
                 <el-button type="primary" size="small" @click="handleEditAiQuestion(index)">编辑本题</el-button>
-              </el-card>
+              </div>
             </div>
           </div>
         </div>
@@ -345,7 +337,7 @@
 
             <!-- 操作按钮 -->
             <div class="ai-action-buttons">
-              <el-button type="success" @click="handleGenerate" :loading="generating">
+              <el-button type="primary" @click="handleGenerate" :loading="generating">
                 <el-icon><MagicStick /></el-icon>
                 {{ generating ? '生成中...' : '生成题目' }}
               </el-button>
@@ -389,7 +381,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRoute, useRouter } from 'vue-router'
 import { questionApi } from '@/api/question'
 import { aiApi, type GenerateQuestionRequest, type GeneratedQuestion } from '@/api/ai'
-import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, MagicStick, Check, Document, Setting } from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/utils/error'
 import { sanitizeHtml, sanitizeAndTruncate } from '@/utils/sanitize'
@@ -454,7 +446,6 @@ const questionForm = reactive({
   difficulty: 'MEDIUM',
   subject: '',
   content: '',
-  score: 10,
   options: [] as QuestionOption[],
   correctAnswer: '' as string | string[],
   explanation: '',
@@ -474,8 +465,20 @@ const rules = reactive<FormRules>({
   difficulty: [{ required: true, message: '请选择难度', trigger: 'change' }],
   subject: [{ required: true, message: '请输入学科', trigger: 'blur' }],
   content: [{ required: true, message: '请输入题目内容', trigger: 'blur' }],
-  score: [{ required: true, message: '请输入分值', trigger: 'blur' }],
-  correctAnswer: [{ required: true, message: '请输入正确答案', trigger: 'blur' }]
+  correctAnswer: [
+    {
+      validator: (_rule, value, callback) => {
+        if (value === undefined || value === null || value === '') {
+          callback(new Error('请输入正确答案'))
+        } else if (Array.isArray(value) && value.length === 0) {
+          callback(new Error('请至少选择一个正确答案'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'change'
+    }
+  ]
 })
 
 const aiRules = reactive<FormRules>({
@@ -495,10 +498,10 @@ function hasPermission(roles: string[]) {
 
 function canEdit(question: Question) {
   const role = authStore.user?.role
-  if (role === 'ADMIN') {
-    return true
+  if (role === 'ADMIN' || role === 'TEACHER') {
+    return question.teacherId === authStore.user?.id
   }
-  return role === 'TEACHER' && question.teacherId === authStore.user?.id
+  return false
 }
 
 function clearQuestionRouteState() {
@@ -521,13 +524,13 @@ function getTypeName(type: string) {
 
 function getTypeColor(type: string) {
   const map: Record<string, string> = {
-    SINGLE_CHOICE: 'primary',
-    MULTIPLE_CHOICE: 'success',
-    TRUE_FALSE: 'warning',
+    SINGLE_CHOICE: 'info',
+    MULTIPLE_CHOICE: 'info',
+    TRUE_FALSE: 'info',
     FILL_BLANK: 'info',
-    ESSAY: 'danger'
+    ESSAY: 'info'
   }
-  return map[type] || ''
+  return map[type] || undefined
 }
 
 function getDifficultyName(difficulty: string) {
@@ -541,11 +544,11 @@ function getDifficultyName(difficulty: string) {
 
 function getDifficultyColor(difficulty: string) {
   const map: Record<string, string> = {
-    EASY: 'success',
-    MEDIUM: 'warning',
-    HARD: 'danger'
+    EASY: 'info',
+    MEDIUM: 'info',
+    HARD: 'primary'
   }
-  return map[difficulty] || ''
+  return map[difficulty] || undefined
 }
 
 function formatCorrectAnswer(answer: unknown): string {
@@ -566,7 +569,7 @@ async function loadQuestions() {
       size: pagination.size,
       type: searchForm.type || undefined,
       difficulty: searchForm.difficulty || undefined,
-      subject: searchForm.subject || undefined
+      keyword: searchForm.subject || undefined
     })
     questions.value = res.data.records
     pagination.total = res.data.total
@@ -624,7 +627,6 @@ function handleCreate() {
     difficulty: 'MEDIUM',
     subject: '',
     content: '',
-    score: 10,
     options: [
       { id: 'A', text: '' },
       { id: 'B', text: '' },
@@ -647,7 +649,6 @@ function handleEdit(row: Question) {
     difficulty: row.difficulty,
     subject: row.subject,
     content: row.content,
-    score: row.score,
     options: row.options ? [...row.options] : [],
     correctAnswer: row.correctAnswer || '',
     explanation: row.explanation || '',
@@ -785,30 +786,28 @@ function removeFillBlankAnswer(index: number) {
 async function handleSubmit() {
   if (!questionFormRef.value) return
 
+  if (questionForm.type === 'FILL_BLANK') {
+    const validAnswers = fillBlankAnswers.value.filter(a => a.trim() !== '')
+    if (validAnswers.length === 0) {
+      questionForm.correctAnswer = ''
+    } else if (validAnswers.length === 1) {
+      questionForm.correctAnswer = validAnswers[0]!
+    } else {
+      questionForm.correctAnswer = validAnswers
+    }
+  }
+
   await questionFormRef.value.validate(async (valid) => {
     if (valid) {
       submitting.value = true
       try {
-        // 处理填空题答案格式
-        let correctAnswer: string | string[] | undefined = questionForm.correctAnswer
-        if (questionForm.type === 'FILL_BLANK') {
-          // 过滤空值
-          const validAnswers = fillBlankAnswers.value.filter(a => a.trim() !== '')
-          if (validAnswers.length === 1) {
-            correctAnswer = validAnswers[0]
-          } else if (validAnswers.length > 1) {
-            correctAnswer = validAnswers
-          } else {
-            correctAnswer = ''
-          }
-        }
+        const correctAnswer: string | string[] | undefined = questionForm.correctAnswer
 
         const data: Record<string, unknown> = {
           type: questionForm.type,
           difficulty: questionForm.difficulty,
           subject: questionForm.subject,
           content: questionForm.content,
-          score: questionForm.score,
           correctAnswer: correctAnswer,
           explanation: questionForm.explanation
         }
@@ -877,7 +876,6 @@ function handleCloseAiDialog() {
     closeStream.value()
     closeStream.value = null
     generating.value = false
-    isBackgroundGenerating.value = false
     ElMessage.info('已取消AI生成')
   }
   // 正常关闭
@@ -963,7 +961,6 @@ function handleEditAiQuestion(index: number) {
     difficulty: q.difficulty,
     subject: aiForm.subject,
     content: q.content,
-    score: Number(q.score),
     options: q.options ? [...q.options] : [],
     correctAnswer: correctAnswer,
     explanation: q.explanation || '',
@@ -1002,7 +999,6 @@ async function handleSaveAllQuestions() {
         difficulty: q.difficulty || aiForm.difficulty,
         subject: aiForm.subject,
         content: q.content,
-        score: Number(q.score ?? 10),
         correctAnswer: q.correctAnswer,
         explanation: q.explanation
       }
@@ -1197,11 +1193,13 @@ watch(
           flex-direction: column;
           gap: $spacing-md;
 
-          .question-preview-card {
-            border: 1px solid $border-color;
-            border-radius: $radius-md;
-            padding: $spacing-md;
-            background: $bg-primary;
+          .question-preview-item {
+            padding: $spacing-md 0;
+            border-bottom: 1px solid $border-light;
+
+            &:last-child {
+              border-bottom: none;
+            }
 
             .question-header {
               display: flex;
@@ -1241,9 +1239,6 @@ watch(
 
             .preview-answer {
               margin-bottom: $spacing-sm;
-              padding: $spacing-sm;
-              background: $bg-hover;
-              border-radius: $radius-sm;
               font-size: $font-size-sm;
 
               .answer-label {
@@ -1254,9 +1249,6 @@ watch(
             }
 
             .preview-explanation {
-              padding: $spacing-sm;
-              background: $bg-secondary;
-              border-radius: $radius-sm;
               font-size: $font-size-sm;
               margin-bottom: $spacing-sm;
 

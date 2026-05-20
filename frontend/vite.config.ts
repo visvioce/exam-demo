@@ -29,6 +29,9 @@ export default defineConfig({
           if (id.includes('element-plus') || id.includes('@element-plus/icons-vue')) {
             return 'element-plus'
           }
+          if (id.includes('echarts')) {
+            return 'echarts'
+          }
           if (id.includes('axios')) {
             return 'network'
           }

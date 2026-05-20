@@ -251,7 +251,7 @@ onMounted(() => {
 
   &__cover {
     width: 100%;
-    height: 140px;
+    aspect-ratio: 16 / 9;
     border-radius: $radius-sm;
     overflow: hidden;
     margin-bottom: $spacing-md;

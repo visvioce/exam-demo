@@ -17,11 +17,11 @@ const QUESTION_TYPE_MAP: Record<string, string> = {
  * 题目类型颜色映射
  */
 const QUESTION_TYPE_COLOR_MAP: Record<string, string> = {
-  SINGLE_CHOICE: 'primary',
-  MULTIPLE_CHOICE: 'success',
-  TRUE_FALSE: 'warning',
+  SINGLE_CHOICE: 'info',
+  MULTIPLE_CHOICE: 'info',
+  TRUE_FALSE: 'info',
   FILL_BLANK: 'info',
-  ESSAY: 'danger'
+  ESSAY: 'info'
 }
 
 /**
@@ -37,9 +37,9 @@ const DIFFICULTY_MAP: Record<string, string> = {
  * 难度颜色映射
  */
 const DIFFICULTY_COLOR_MAP: Record<string, string> = {
-  EASY: 'success',
-  MEDIUM: 'warning',
-  HARD: 'danger'
+  EASY: 'info',
+  MEDIUM: 'info',
+  HARD: 'primary'
 }
 
 /**
@@ -49,8 +49,7 @@ const EXAM_STATUS_MAP: Record<string, string> = {
   DRAFT: '草稿',
   PUBLISHED: '已发布',
   STARTED: '进行中',
-  ENDED: '已结束',
-  CANCELLED: '已取消'
+  ENDED: '已结束'
 }
 
 /**
@@ -58,10 +57,9 @@ const EXAM_STATUS_MAP: Record<string, string> = {
  */
 const EXAM_STATUS_COLOR_MAP: Record<string, string> = {
   DRAFT: 'info',
-  PUBLISHED: 'success',
+  PUBLISHED: 'primary',
   STARTED: 'primary',
-  ENDED: 'warning',
-  CANCELLED: 'danger'
+  ENDED: 'info'
 }
 
 /**
@@ -77,9 +75,9 @@ const ROLE_MAP: Record<string, string> = {
  * 用户角色颜色映射
  */
 const ROLE_COLOR_MAP: Record<string, string> = {
-  ADMIN: 'danger',
-  TEACHER: 'warning',
-  STUDENT: 'success'
+  ADMIN: 'info',
+  TEACHER: 'info',
+  STUDENT: 'info'
 }
 
 /**
@@ -106,9 +104,9 @@ const SESSION_STATUS_MAP: Record<string, string> = {
  */
 const SESSION_STATUS_COLOR_MAP: Record<string, string> = {
   NOT_STARTED: 'info',
-  IN_PROGRESS: 'warning',
-  SUBMITTED: 'primary',
-  GRADED: 'success'
+  IN_PROGRESS: 'primary',
+  SUBMITTED: 'info',
+  GRADED: 'info'
 }
 
 /**
@@ -117,6 +115,7 @@ const SESSION_STATUS_COLOR_MAP: Record<string, string> = {
 const GRADING_STATUS_MAP: Record<string, string> = {
   PENDING: '待评分',
   GRADING: '评分中',
+  GRADED: '已评分',
   COMPLETED: '已完成'
 }
 
@@ -124,9 +123,10 @@ const GRADING_STATUS_MAP: Record<string, string> = {
  * 评分状态颜色映射
  */
 const GRADING_STATUS_COLOR_MAP: Record<string, string> = {
-  PENDING: 'warning',
+  PENDING: 'info',
   GRADING: 'primary',
-  COMPLETED: 'success'
+  GRADED: 'info',
+  COMPLETED: 'info'
 }
 
 /**
@@ -139,8 +139,8 @@ export function getTypeName(type: string): string {
 /**
  * 获取题目类型颜色
  */
-export function getTypeColor(type: string): string {
-  return QUESTION_TYPE_COLOR_MAP[type] || ''
+export function getTypeColor(type: string): string | undefined {
+  return QUESTION_TYPE_COLOR_MAP[type] || undefined
 }
 
 /**
@@ -153,8 +153,8 @@ export function getDifficultyName(difficulty: string): string {
 /**
  * 获取难度颜色
  */
-export function getDifficultyColor(difficulty: string): string {
-  return DIFFICULTY_COLOR_MAP[difficulty] || ''
+export function getDifficultyColor(difficulty: string): string | undefined {
+  return DIFFICULTY_COLOR_MAP[difficulty] || undefined
 }
 
 /**
@@ -167,8 +167,8 @@ export function getStatusName(status: string): string {
 /**
  * 获取考试状态颜色
  */
-export function getStatusColor(status: string): string {
-  return EXAM_STATUS_COLOR_MAP[status] || ''
+export function getStatusColor(status: string): string | undefined {
+  return EXAM_STATUS_COLOR_MAP[status] || undefined
 }
 
 /**
@@ -181,8 +181,8 @@ export function getRoleName(role: string): string {
 /**
  * 获取用户角色颜色
  */
-export function getRoleColor(role: string): string {
-  return ROLE_COLOR_MAP[role] || ''
+export function getRoleColor(role: string): string | undefined {
+  return ROLE_COLOR_MAP[role] || undefined
 }
 
 /**
@@ -202,8 +202,8 @@ export function getSessionStatusName(status: string): string {
 /**
  * 获取考试会话状态颜色
  */
-export function getSessionStatusColor(status: string): string {
-  return SESSION_STATUS_COLOR_MAP[status] || ''
+export function getSessionStatusColor(status: string): string | undefined {
+  return SESSION_STATUS_COLOR_MAP[status] || undefined
 }
 
 /**
@@ -217,9 +217,9 @@ export function getGradingStatusName(status?: string): string {
 /**
  * 获取评分状态颜色
  */
-export function getGradingStatusColor(status?: string): string {
-  if (!status) return 'info'
-  return GRADING_STATUS_COLOR_MAP[status] || ''
+export function getGradingStatusColor(status?: string): string | undefined {
+  if (!status) return undefined
+  return GRADING_STATUS_COLOR_MAP[status] || undefined
 }
 
 /**
@@ -396,6 +396,17 @@ export function formatAnswer(answer: unknown, showBlankIndex: boolean = false): 
       return answer.map((a, i) => `第${i + 1}空：${a || '未填'}`).join('；')
     }
     return answer.join(', ')
+  }
+
+  if (typeof answer === 'string') {
+    try {
+      const parsed = JSON.parse(answer)
+      if (Array.isArray(parsed)) {
+        return parsed.join(', ')
+      }
+    } catch {
+      // not JSON, fall through
+    }
   }
   
   return String(answer)

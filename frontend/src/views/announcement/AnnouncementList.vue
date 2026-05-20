@@ -9,7 +9,7 @@
     </div>
 
     <!-- 搜索栏 -->
-    <el-card class="search-card">
+    <div class="search-bar">
       <el-form :model="searchForm" label-width="80px">
         <el-form-item label="关键字">
           <div class="search-input-wrapper">
@@ -58,7 +58,7 @@
           <el-button @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
-    </el-card>
+    </div>
 
     <!-- 公告列表 -->
     <el-card class="table-card">
@@ -276,8 +276,10 @@ function hasPermission(roles: string[]) {
 }
 
 function canEdit(announcement: Announcement) {
-  if (authStore.user?.role === 'ADMIN') return true
-  if (authStore.user?.role === 'TEACHER' && announcement.publisherId === authStore.user?.id) return true
+  const role = authStore.user?.role
+  if (role === 'ADMIN' || role === 'TEACHER') {
+    return announcement.publisherId === authStore.user?.id
+  }
   return false
 }
 
@@ -292,11 +294,11 @@ function getTypeName(type: string) {
 
 function getTypeColor(type: string) {
   const map: Record<string, string> = {
-    SYSTEM: 'danger',
-    EXAM: 'warning',
-    COURSE: 'success'
+    SYSTEM: 'info',
+    EXAM: 'info',
+    COURSE: 'info'
   }
-  return map[type] || ''
+  return map[type] || undefined
 }
 
 function getPriorityName(priority?: string) {
@@ -310,13 +312,13 @@ function getPriorityName(priority?: string) {
 }
 
 function getPriorityColor(priority?: string) {
-  if (!priority) return 'info'
+  if (!priority) return undefined
   const map: Record<string, string> = {
     LOW: 'info',
-    MEDIUM: 'warning',
-    HIGH: 'danger'
+    MEDIUM: 'info',
+    HIGH: 'primary'
   }
-  return map[priority] || ''
+  return map[priority] || undefined
 }
 
 function getPublisherDisplayName(announcement: Announcement | null): string {

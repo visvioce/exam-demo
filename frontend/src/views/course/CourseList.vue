@@ -43,7 +43,7 @@
               <el-tag :type="course.status === 'ACTIVE' ? 'success' : 'info'" size="small">
                 {{ course.status === 'ACTIVE' ? '进行中' : '已结束' }}
               </el-tag>
-              <el-tag size="small" type="success">已参加</el-tag>
+              <el-tag size="small" type="info">已参加</el-tag>
             </div>
           </el-card>
         </el-col>
@@ -327,7 +327,7 @@ onMounted(() => {
 
     &__cover {
       width: 100%;
-      height: 148px;
+      aspect-ratio: 16 / 9;
       border-radius: $radius-sm;
       overflow: hidden;
       margin-bottom: $spacing-md;

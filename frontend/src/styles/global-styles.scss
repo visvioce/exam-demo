@@ -34,7 +34,7 @@ html {
   min-height: 100vh;
 }
 
-:focus {
+:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -222,10 +222,19 @@ a {
     font-size: $font-size-sm;
     font-weight: $font-weight-normal;
   }
+
+  .el-form-item.is-required:not(.is-no-asterisk) {
+    .el-form-item__label::before {
+      color: $text-primary !important;
+    }
+  }
 }
 
 // 表格 - 极简风格
 .el-table {
+  --el-fill-color-light: #{$bg-primary};
+  --el-table-tr-bg-color: #{$bg-primary};
+
   border-radius: $radius-none;
   border: 1px solid $border-color;
   width: 100%;
@@ -254,9 +263,14 @@ a {
   }
 
   tr {
+    background: $bg-primary;
     transition: background-color $transition-fast;
+  }
 
-    &:hover {
+  .el-table__body tr {
+    background: $bg-primary;
+
+    &:hover > td.el-table__cell {
       background: $table-row-hover !important;
     }
   }
@@ -265,13 +279,8 @@ a {
     border: none;
   }
 
-  // 无斑马纹
-  &--striped {
-    .el-table__body tr.el-table__row--striped {
-      td {
-        background: $bg-primary;
-      }
-    }
+  .el-table__fixed-right-patch {
+    background: $bg-primary;
   }
 }
 
@@ -353,6 +362,14 @@ a {
     .el-dialog__headerbtn {
       border-radius: $radius-sm;
       transition: background-color $transition-fast;
+
+      .el-dialog__close {
+        color: $text-tertiary;
+
+        &:hover {
+          color: $text-primary;
+        }
+      }
 
       &:hover {
         background: $bg-hover;

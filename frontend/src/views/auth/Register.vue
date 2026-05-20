@@ -117,7 +117,7 @@ const rules = reactive<FormRules>({
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '长度在 6 到 20 个字符', trigger: 'blur' }
+    { min: 6, message: '密码长度不能少于6个字符', trigger: 'blur' }
   ],
   confirmPassword: [
     { required: true, message: '请确认密码', trigger: 'blur' },
@@ -129,22 +129,20 @@ const rules = reactive<FormRules>({
 })
 
 async function handleRegister() {
-  if (!registerFormRef.value) return
+  if (!registerFormRef.value || loading.value) return
 
   await registerFormRef.value.validate(async (valid) => {
     if (valid) {
       loading.value = true
       try {
-        await authStore.register({
+        const success = await authStore.register({
           username: registerForm.username,
           password: registerForm.password,
           nickname: registerForm.nickname
         })
-        // 注册成功，跳转到登录页
-        router.push('/login')
-      } catch (error) {
-        // 错误已在请求拦截器中显示，这里不需要额外处理
-        // 保持表单数据，让用户可以修改后重试
+        if (success) {
+          router.push('/login')
+        }
       } finally {
         loading.value = false
       }

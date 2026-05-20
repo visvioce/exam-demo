@@ -10,21 +10,19 @@
 
     <!-- 教师视图：查看所有学生的考试结果 -->
     <template v-if="!isStudent">
-      <el-card v-loading="loading">
-        <template #header>
-          <div class="card-header">
-            <span>学生考试记录</span>
-            <div class="header-actions">
-              <el-button type="warning" @click="handleAutoGrade" :loading="autoGrading">
-                自动阅卷
-              </el-button>
-              <el-button type="primary" @click="openBatchGradeDialog" :disabled="!canBatchGrade">
-                阅卷
-              </el-button>
-              <el-button @click="loadSessions">刷新</el-button>
-            </div>
+      <div class="content-card" v-loading="loading">
+        <div class="card-header">
+          <span>学生考试记录</span>
+          <div class="header-actions">
+            <el-button type="warning" @click="handleAutoGrade" :loading="autoGrading">
+              自动阅卷
+            </el-button>
+            <el-button type="primary" @click="openBatchGradeDialog" :disabled="!canBatchGrade">
+              阅卷
+            </el-button>
+            <el-button @click="loadSessions">刷新</el-button>
           </div>
-        </template>
+        </div>
 
         <el-table :data="sessions" stripe table-layout="auto" :fit="true">
           <el-table-column prop="id" label="记录ID" width="80" />
@@ -72,7 +70,7 @@
             </template>
           </el-table-column>
         </el-table>
-      </el-card>
+      </div>
 
       <!-- 批量阅卷对话框 -->
       <el-dialog v-model="gradeDialogVisible" title="批量阅卷" width="1100px">
@@ -141,10 +139,10 @@
 
     <!-- 学生视图：查看自己的考试结果 -->
     <template v-else>
-      <el-card v-loading="loading">
-        <template #header>
+      <div class="content-card" v-loading="loading">
+        <div class="card-header">
           <span>我的考试结果</span>
-        </template>
+        </div>
 
         <template v-if="mySession">
           <el-result :icon="getExamStatusIcon(mySession.score, mySession.totalScore, mySession.gradingStatus)">
@@ -197,17 +195,17 @@
             </el-table-column>
             <el-table-column label="状态" min-width="100">
               <template #default="{ row }">
-                <el-tag :type="row.isCorrect ? 'success' : 'danger'" v-if="row.isCorrect !== undefined">
+                <el-tag :type="row.isCorrect ? 'primary' : 'info'" v-if="row.isCorrect !== undefined">
                   {{ row.isCorrect ? '正确' : '错误' }}
                 </el-tag>
-                <el-tag type="warning" v-else>待评分</el-tag>
+                <el-tag type="info" v-else>待评分</el-tag>
               </template>
             </el-table-column>
           </el-table>
         </template>
 
         <el-empty v-else description="暂无考试记录" />
-      </el-card>
+      </div>
     </template>
   </div>
 </template>
@@ -218,13 +216,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { examApi, examSessionApi } from '@/api/exam'
 import { courseApi } from '@/api/course'
-import { paperApi } from '@/api/paper'
 import { questionApi } from '@/api/question'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { formatDate, getSessionStatusName as getStatusName, getSessionStatusColor as getStatusColor, getGradingStatusName, getGradingStatusColor, formatAnswer } from '@/utils/format'
 import { getErrorMessage } from '@/utils/error'
-import type { Exam, ExamSession, Question, Paper, ExamResultResponse, User } from '@/types'
+import type { Exam, ExamSession, Question, ExamResultResponse, User } from '@/types'
 import ActionButtons from '@/components/ActionButtons.vue'
 
 const route = useRoute()
@@ -240,7 +237,6 @@ const detailDialogVisible = ref(false)
 const detailLoading = ref(false)
 
 const exam = ref<Exam | null>(null)
-const paper = ref<Paper | null>(null)
 const sessions = ref<ExamSession[]>([])
 const mySession = ref<ExamSession | null>(null)
 const examResult = ref<ExamResultResponse | null>(null)
@@ -271,33 +267,28 @@ function goBack() {
 }
 
 function getExamStatusIcon(score: number | null | undefined, _totalScore: number, gradingStatus?: string) {
-  // 如果正在评分中，显示warning图标
-  if (gradingStatus === 'PENDING') return 'warning'
-  if (score === null || score === undefined) return 'warning'
+  if (gradingStatus === 'PENDING') return 'info'
+  if (score === null || score === undefined) return 'info'
 
-  // 使用考试的及格分数，而不是硬编码60
   const passScore = exam.value?.passScore || 60
-  return score >= passScore ? 'success' : 'error'
+  return score >= passScore ? 'primary' : 'info'
 }
 
 function getPassOrFail(score: number | null | undefined, _totalScore: number, gradingStatus?: string) {
-  // 如果正在评分中，显示warning
-  if (gradingStatus === 'PENDING') return 'warning'
-  if (score === null || score === undefined) return 'warning'
+  if (gradingStatus === 'PENDING') return 'info'
+  if (score === null || score === undefined) return 'info'
 
-  // 使用考试的及格分数，而不是硬编码60%
   const passScore = exam.value?.passScore || 60
-  return score >= passScore ? 'success' : 'danger'
+  return score >= passScore ? 'primary' : 'info'
 }
 
-function getGradeStatusText(score: number | null | undefined, totalScore: number, gradingStatus?: string): string {
+function getGradeStatusText(score: number | null | undefined, _totalScore: number, gradingStatus?: string): string {
   // 如果正在评分中，显示"评分中"
   if (gradingStatus === 'PENDING') return '评分中'
 
   // 如果已经完成评分
   if (gradingStatus === 'COMPLETED') {
-    const percentage = (score ?? 0) / totalScore * 100
-    return percentage >= (exam.value?.passScore || 60) ? '及格' : '不及格'
+    return (score ?? 0) >= (exam.value?.passScore || 60) ? '及格' : '不及格'
   }
 
   return '未知'
@@ -317,12 +308,6 @@ async function loadExam() {
   try {
     const res = await examApi.getById(examId.value)
     exam.value = res.data
-
-    // 加载试卷信息（用于获取题目分数）
-    if (exam.value?.paperId) {
-      const paperRes = await paperApi.getById(exam.value.paperId)
-      paper.value = paperRes.data
-    }
 
   } catch (error) {
     ElMessage.error('加载考试失败')
@@ -469,15 +454,14 @@ async function loadBatchGradeRows() {
 }
 
 function getQuestionMaxScore(questionId: number): number {
-  // 从试卷中获取题目分数
-  if (paper.value?.questions) {
-    const paperQuestion = paper.value.questions.find(q => q.questionId === questionId)
-    if (paperQuestion) {
-      return paperQuestion.score
+  const examQuestionsData = exam.value?.examPaper
+  if (examQuestionsData?.items && examQuestionsData?.typeScores) {
+    const q = examQuestionsData.items.find(i => i.questionId === questionId)
+    if (q) {
+      return examQuestionsData.typeScores[q.type] || 0
     }
   }
-  // 默认返回10分
-  return 10
+  return 0
 }
 
 async function handleSubmitBatchGrades() {
@@ -579,6 +563,23 @@ onMounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding: $spacing-md $spacing-lg;
+    border-bottom: 1px solid $border-light;
+    background: $bg-secondary;
+    font-weight: $font-weight-medium;
+    color: $text-primary;
+  }
+
+  .content-card {
+    border: 1px solid $border-color;
+    border-radius: $radius-md;
+    background: $bg-primary;
+    overflow: hidden;
+    margin-bottom: $spacing-lg;
+
+    :deep(.el-table) {
+      border: none;
+    }
   }
 
   .header-actions {
@@ -603,8 +604,8 @@ onMounted(() => {
   }
 
   .score-main {
-    font-size: 24px;
-    font-weight: $font-weight-medium;
+    font-size: $font-size-2xl;
+    font-weight: $font-weight-semibold;
   }
 
   .score-status {

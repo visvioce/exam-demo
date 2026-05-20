@@ -210,10 +210,10 @@ const courseId = computed(() => Number(route.params.id))
 const isStudent = computed(() => authStore.user?.role === 'STUDENT')
 const canEdit = computed(() => {
   const role = authStore.user?.role
-  // 管理员可以操作所有课程（与后端逻辑一致）
-  if (role === 'ADMIN') return true
-  // 教师只能操作自己创建的课程
-  return role === 'TEACHER' && course.value?.teacherId === authStore.user?.id
+  if (role === 'ADMIN' || role === 'TEACHER') {
+    return course.value?.teacherId === authStore.user?.id
+  }
+  return false
 })
 const showMembers = computed(() => canEdit.value || isJoined.value)
 const canJoinCourse = computed(() => {
@@ -286,11 +286,11 @@ async function loadExams() {
     if (isStudent.value) {
       if (isJoined.value) {
         const res = await examApi.getMyExams()
-        exams.value = (res.data || []).filter((exam) => exam.courseId === courseId.value)
+        exams.value = (res.data.records || []).filter((exam) => exam.courseId === courseId.value)
       } else {
         // 未加入课程时仅提供考试预览信息，不允许参加
         const res = await examApi.getPublishedExams()
-        exams.value = (res.data || [])
+        exams.value = (res.data.records || [])
           .filter((exam) => exam.courseId === courseId.value)
           .map((exam) => ({ ...exam, studentExamStatus: 'NOT_STARTED' }))
       }
@@ -446,7 +446,6 @@ function getStudentExamActionText(exam: Exam): string {
   if (exam.studentExamStatus === 'SUBMITTED') return '已提交'
   if (exam.studentExamStatus === 'GRADED') return '已完成'
   if (exam.studentExamStatus === 'IN_PROGRESS') return '继续考试'
-  if (exam.status === 'CANCELLED') return '已取消'
   if (exam.status === 'ENDED') return '已结束'
   if (exam.status === 'DRAFT') return '未发布'
 
@@ -475,10 +474,6 @@ watchEffect(() => {
 
 watchEffect(() => {
   if (!course.value) return
-  // 学生加入/退出课程后需要刷新考试数据，避免仍显示旧状态
-  if (isStudent.value) {
-    void isJoined.value
-  }
   loadExams()
 })
 </script>

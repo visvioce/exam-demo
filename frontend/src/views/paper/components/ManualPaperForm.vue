@@ -4,38 +4,39 @@
       <el-form-item label="试卷名称" prop="name">
         <el-input v-model="form.name" placeholder="请输入试卷名称" />
       </el-form-item>
-      <el-form-item label="所属课程" prop="courseId">
-        <el-select v-model="form.courseId" placeholder="请选择课程" class="full-width">
-          <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
-        </el-select>
-      </el-form-item>
+      <div class="section-title">题目管理</div>
       <el-form-item label="描述">
         <el-input v-model="form.description" type="textarea" :rows="2" placeholder="请输入试卷描述（可选）" />
       </el-form-item>
       <el-form-item label="题目" prop="questions">
         <div class="questions-editor">
-          <div v-if="form.questions.length > 0" class="batch-operations">
-            <el-button size="small" @click="batchSetScore">批量设置分值</el-button>
-            <el-button size="small" @click="removeDuplicates" :disabled="!hasDuplicates">
-              去除重复题目
-              <el-badge v-if="duplicateCount > 0" :value="duplicateCount" type="warning" />
-            </el-button>
-            <el-button size="small" type="danger" @click="clearAllQuestions">清空所有</el-button>
-            <span class="question-count">共 {{ form.questions.length }} 题，总分 {{ totalScore }}</span>
+          <div class="questions-toolbar">
+            <span class="toolbar-label">题目列表</span>
+            <div class="toolbar-actions">
+              <span class="question-count">共 {{ form.questions.length }} 题</span>
+              <el-button size="small" @click="removeDuplicates" :disabled="!hasDuplicates">
+                去重
+                <el-badge v-if="duplicateCount > 0" :value="duplicateCount" type="warning" />
+              </el-button>
+            </div>
           </div>
 
-          <div v-for="(pq, index) in form.questions" :key="index" class="question-row">
-            <span class="question-index-label">{{ index + 1 }}.</span>
-            <el-select v-model="pq.questionId" placeholder="选择题目" class="question-select" filterable>
-              <el-option
-                v-for="q in questions"
-                :key="q.id"
-                :label="getQuestionOptionLabel(q)"
-                :value="q.id"
-              />
-            </el-select>
-            <el-input-number v-model="pq.score" :min="1" :max="100" />
-            <DeleteActionButton aria-label="删除题目" @click="removeQuestion(index)" />
+          <div class="questions-list">
+            <div v-for="(_questionId, index) in form.questions" :key="index" class="question-row">
+              <span class="question-index-label">{{ index + 1 }}.</span>
+              <el-select v-model="form.questions[index]" placeholder="选择题目" class="question-select" filterable size="small">
+                <el-option
+                  v-for="q in questions"
+                  :key="q.id"
+                  :label="getQuestionOptionLabel(q)"
+                  :value="q.id"
+                />
+              </el-select>
+              <DeleteActionButton aria-label="删除题目" @click="removeQuestion(index)" />
+            </div>
+            <div v-if="form.questions.length === 0" class="questions-empty">
+              暂无题目，从题库中选择或添加
+            </div>
           </div>
           <div class="add-buttons">
             <el-button type="primary" @click="showQuestionSelector" size="small">从题库选择</el-button>
@@ -45,11 +46,11 @@
     </el-form>
 
     <!-- 题库选择对话框 -->
-    <el-dialog v-model="questionSelectorVisible" title="从题库选择题目" width="95%" top="5vh">
-      <el-card class="selector-filter-card">
+    <el-dialog v-model="questionSelectorVisible" title="从题库选择题目" width="90%" top="3vh" class="selector-dialog">
+      <div class="selector-filter-bar">
         <el-form :inline="true" :model="questionFilters">
-          <el-form-item label="题目类型">
-            <el-select v-model="questionFilters.type" placeholder="全部" clearable class="filter-type">
+          <el-form-item label="类型">
+            <el-select v-model="questionFilters.type" placeholder="全部" clearable size="small" class="filter-type">
               <el-option label="单选题" value="SINGLE_CHOICE" />
               <el-option label="多选题" value="MULTIPLE_CHOICE" />
               <el-option label="判断题" value="TRUE_FALSE" />
@@ -58,75 +59,50 @@
             </el-select>
           </el-form-item>
           <el-form-item label="难度">
-            <el-select v-model="questionFilters.difficulty" placeholder="全部" clearable class="filter-difficulty">
+            <el-select v-model="questionFilters.difficulty" placeholder="全部" clearable size="small" class="filter-difficulty">
               <el-option label="简单" value="EASY" />
               <el-option label="中等" value="MEDIUM" />
               <el-option label="困难" value="HARD" />
             </el-select>
           </el-form-item>
           <el-form-item label="学科">
-            <el-input v-model="questionFilters.subject" placeholder="请输入学科" clearable class="filter-subject" />
+            <el-input v-model="questionFilters.subject" placeholder="学科" clearable size="small" class="filter-subject" />
           </el-form-item>
           <el-form-item label="关键字">
-            <el-input v-model="questionFilters.keyword" placeholder="题目内容" clearable class="filter-keyword" />
+            <el-input v-model="questionFilters.keyword" placeholder="题目内容" clearable size="small" class="filter-keyword" />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" @click="handleQuestionSearch">搜索</el-button>
-            <el-button @click="handleQuestionReset">重置</el-button>
+            <el-button type="primary" size="small" @click="handleQuestionSearch">搜索</el-button>
+            <el-button size="small" @click="handleQuestionReset">重置</el-button>
           </el-form-item>
         </el-form>
-      </el-card>
+      </div>
 
       <el-table
         :data="questionTableData"
         @selection-change="handleSelectionChange"
         table-layout="fixed"
         :fit="true"
-        max-height="450"
+        max-height="420"
         class="selector-table"
       >
-        <el-table-column type="selection" width="55" />
-        <el-table-column prop="id" label="ID" width="64" />
-        <el-table-column label="题目内容" min-width="280">
+        <el-table-column type="selection" width="42" />
+        <el-table-column prop="id" label="ID" width="56" />
+        <el-table-column label="题目信息" min-width="320">
           <template #default="{ row }">
             <div class="question-preview-cell">
-              <div class="question-type-tag">
+              <div class="question-content-text">{{ row.content }}</div>
+              <div class="question-tags">
                 <el-tag :type="getTypeColor(row.type)" size="small">{{ getTypeName(row.type) }}</el-tag>
-                <el-tag :type="getDifficultyColor(row.difficulty)" size="small" class="difficulty-tag">
+                <el-tag :type="getDifficultyColor(row.difficulty)" size="small">
                   {{ getDifficultyName(row.difficulty) }}
                 </el-tag>
-              </div>
-              <div class="question-content-text">{{ row.content }}</div>
-
-              <div v-if="row.options && row.options.length > 0" class="options-preview">
-                <div v-for="opt in row.options" :key="opt.id" class="option-item">
-                  <span class="option-label">{{ opt.id }}.</span>
-                  <span>{{ opt.text }}</span>
-                </div>
-              </div>
-
-              <div class="correct-answer-preview">
-                <span class="label">正确答案：</span>
-                <span class="answer" v-if="row.type === 'MULTIPLE_CHOICE' && Array.isArray(row.correctAnswer)">
-                  {{ row.correctAnswer.join(', ') }}
-                </span>
-                <span class="answer" v-else>{{ row.correctAnswer }}</span>
+                <span v-if="row.subject" class="subject-badge">{{ row.subject }}</span>
               </div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="subject" label="学科" min-width="96" />
-        <el-table-column prop="score" label="默认分值" min-width="92">
-          <template #default="{ row }">
-            <el-input-number
-              v-model="row.score"
-              :min="1"
-              :max="100"
-              size="small"
-              class="score-input"
-            />
-          </template>
-        </el-table-column>
+        <el-table-column prop="subject" label="学科" min-width="72" />
       </el-table>
 
       <div class="question-pagination">
@@ -142,11 +118,9 @@
       </div>
 
       <template #footer>
-        <div class="selected-summary">
-          <span class="selected-summary__text">已选择 {{ selectedQuestions.length }} 道题目</span>
-        </div>
-        <el-button @click="questionSelectorVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmSelectQuestions" :disabled="selectedQuestions.length === 0">
+        <span class="selected-summary">已选择 {{ selectedQuestions.length }} 道题目</span>
+        <el-button size="small" @click="questionSelectorVisible = false">取消</el-button>
+        <el-button size="small" type="primary" @click="confirmSelectQuestions" :disabled="selectedQuestions.length === 0">
           确定添加
         </el-button>
       </template>
@@ -157,18 +131,17 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { FormInstance, FormRules, MessageBoxData } from 'element-plus'
-import type { Paper, PaperQuestion, Question, Course } from '@/types'
+import type { FormInstance, FormRules } from 'element-plus'
+import type { Paper, Question, ManualPaperSubmitData } from '@/types'
 import DeleteActionButton from '@/components/DeleteActionButton.vue'
 
 const props = defineProps<{
-  courses: Course[]
   questions: Question[]
   initialData?: Paper | null
 }>()
 
 const emit = defineEmits<{
-  (e: 'submit', data: any): void
+  (e: 'submit', data: ManualPaperSubmitData): void
   (e: 'cancel'): void
 }>()
 
@@ -180,13 +153,11 @@ const selectedQuestions = ref<Question[]>([])
 const form = reactive({
   name: '',
   description: '',
-  courseId: null as number | null,
-  questions: [] as PaperQuestion[]
+  questions: [] as number[]
 })
 
 const rules = reactive<FormRules>({
-  name: [{ required: true, message: '请输入试卷名称', trigger: 'blur' }],
-  courseId: [{ required: true, message: '请选择课程', trigger: 'change' }]
+  name: [{ required: true, message: '请输入试卷名称', trigger: 'blur' }]
 })
 
 const questionFilters = reactive({
@@ -202,12 +173,8 @@ const questionPagination = reactive({
   total: 0
 })
 
-const totalScore = computed(() => {
-  return form.questions.reduce((sum, q) => sum + (q.score || 0), 0)
-})
-
 const duplicateCount = computed(() => {
-  const questionIds = form.questions.map(q => q.questionId).filter(id => id !== 0)
+  const questionIds = form.questions.filter(id => id !== 0)
   const uniqueIds = new Set(questionIds)
   return questionIds.length - uniqueIds.size
 })
@@ -224,10 +191,12 @@ const filteredQuestions = computed(() => {
     filtered = filtered.filter(q => q.difficulty === questionFilters.difficulty)
   }
   if (questionFilters.subject) {
-    filtered = filtered.filter(q => q.subject?.includes(questionFilters.subject))
+    const subjectLower = questionFilters.subject.toLowerCase()
+    filtered = filtered.filter(q => q.subject?.toLowerCase().includes(subjectLower))
   }
   if (questionFilters.keyword) {
-    filtered = filtered.filter(q => q.content?.includes(questionFilters.keyword))
+    const keywordLower = questionFilters.keyword.toLowerCase()
+    filtered = filtered.filter(q => q.content?.toLowerCase().includes(keywordLower))
   }
 
   return filtered
@@ -243,8 +212,7 @@ watch(() => props.initialData, (val) => {
   if (val) {
     form.name = val.name
     form.description = val.description || ''
-    form.courseId = val.courseId
-    form.questions = val.questions ? [...val.questions] : []
+    form.questions = val.questionIds ? [...val.questionIds] : []
   }
 }, { immediate: true })
 
@@ -275,13 +243,13 @@ function getQuestionOptionLabel(question: Question): string {
 
 function getTypeColor(type: string) {
   const map: Record<string, string> = {
-    SINGLE_CHOICE: 'primary',
-    MULTIPLE_CHOICE: 'success',
-    TRUE_FALSE: 'warning',
+    SINGLE_CHOICE: 'info',
+    MULTIPLE_CHOICE: 'info',
+    TRUE_FALSE: 'info',
     FILL_BLANK: 'info',
-    ESSAY: 'danger'
+    ESSAY: 'info'
   }
-  return map[type] || ''
+  return map[type] || undefined
 }
 
 function getDifficultyName(difficulty: string) {
@@ -295,11 +263,11 @@ function getDifficultyName(difficulty: string) {
 
 function getDifficultyColor(difficulty: string) {
   const map: Record<string, string> = {
-    EASY: 'success',
-    MEDIUM: 'warning',
-    HARD: 'danger'
+    EASY: 'info',
+    MEDIUM: 'info',
+    HARD: 'primary'
   }
-  return map[difficulty] || ''
+  return map[difficulty] || undefined
 }
 
 function removeQuestion(index: number) {
@@ -335,8 +303,8 @@ function handleSelectionChange(selection: Question[]) {
 function confirmSelectQuestions() {
   let addedCount = 0
   selectedQuestions.value.forEach(q => {
-    if (!form.questions.find(pq => pq.questionId === q.id)) {
-      form.questions.push({ questionId: q.id, score: q.score })
+    if (!form.questions.includes(q.id)) {
+      form.questions.push(q.id)
       addedCount += 1
     }
   })
@@ -348,32 +316,13 @@ function confirmSelectQuestions() {
   ElMessage.success(`已添加 ${addedCount} 道题目`)
 }
 
-function batchSetScore() {
-  ElMessageBox.prompt('请输入统一分值', '批量设置分值', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    inputPattern: /^[1-9]\d*$/,
-    inputErrorMessage: '请输入有效的正整数'
-  }).then((result: MessageBoxData) => {
-    const inputValue = typeof result === 'string' ? result : (result as { value: string }).value
-    const score = parseInt(inputValue)
-    form.questions.forEach(q => {
-      q.score = score
-    })
-    ElMessage.success(`已将所有题目分值设置为 ${score} 分`)
-  }).catch(() => {
-  })
-}
-
 function removeDuplicates() {
-  const seen = new Set()
-  const unique: PaperQuestion[] = []
+  const seen = new Set<number>()
+  const unique: number[] = []
 
   form.questions.forEach(q => {
-    if (q.questionId !== 0 && !seen.has(q.questionId)) {
-      seen.add(q.questionId)
-      unique.push(q)
-    } else if (q.questionId === 0) {
+    if (q !== 0 && !seen.has(q)) {
+      seen.add(q)
       unique.push(q)
     }
   })
@@ -382,7 +331,7 @@ function removeDuplicates() {
   form.questions = unique
 
   if (removedCount > 0) {
-    ElMessage.success(`已移除 ${removedCount} 个重复题目`)
+    ElMessage.success(`已移除 ${removedCount} 个重复或无效题目`)
   } else {
     ElMessage.info('没有重复题目')
   }
@@ -415,10 +364,7 @@ async function handleSubmit() {
         const data = {
           name: form.name,
           description: form.description,
-          courseId: form.courseId ?? undefined,
-          type: 'MANUAL' as const,
-          totalScore: totalScore.value,
-          questions: form.questions
+          questionIds: form.questions
         }
         emit('submit', data)
       } finally {
@@ -437,46 +383,81 @@ defineExpose({
 @use '@/styles/design-tokens.scss' as *;
 
 .manual-paper-form {
+  .section-title {
+    font-size: $font-size-sm;
+    font-weight: $font-weight-semibold;
+    color: $text-tertiary;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: $spacing-md 0 $spacing-sm 0;
+    padding-left: $spacing-sm;
+    border-left: 2px solid $text-quaternary;
+  }
+
   .full-width {
     width: 100%;
   }
 
   .questions-editor {
-    .batch-operations {
-      display: flex;
-      flex-wrap: wrap;
-      gap: $spacing-sm;
-      align-items: center;
-      margin-bottom: $spacing-md;
-      padding: $spacing-md;
-      background: $bg-secondary;
-      border-radius: $radius-sm;
+    width: 100%;
 
-      .question-count {
-        margin-left: auto;
-        color: $text-tertiary;
+    .questions-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: $spacing-sm;
+      padding-bottom: $spacing-sm;
+      border-bottom: 1px solid $border-light;
+
+      .toolbar-label {
         font-size: $font-size-sm;
+        font-weight: $font-weight-medium;
+        color: $text-secondary;
+      }
+
+      .toolbar-actions {
+        display: flex;
+        align-items: center;
+        gap: $spacing-sm;
+
+        .question-count {
+          color: $text-tertiary;
+          font-size: $font-size-xs;
+        }
+      }
+    }
+
+    .questions-list {
+      .questions-empty {
+        padding: $spacing-lg 0;
+        text-align: center;
+        color: $text-quaternary;
+        font-size: $font-size-sm;
+        border: 1px dashed $border-color;
+        border-radius: $radius-sm;
       }
     }
 
     .question-row {
       display: flex;
       flex-wrap: wrap;
-      gap: $spacing-md;
-      margin-bottom: $spacing-md;
+      gap: $spacing-sm;
+      margin-bottom: $spacing-sm;
       align-items: center;
+      padding: $spacing-xs 0;
 
       .question-index-label {
         font-weight: $font-weight-medium;
-        color: $text-primary;
-        min-width: 30px;
+        color: $text-tertiary;
+        min-width: 24px;
+        font-size: $font-size-sm;
+        text-align: right;
       }
     }
 
     .add-buttons {
-      margin-top: $spacing-md;
+      margin-top: $spacing-sm;
     }
-
   }
 
   .question-select {
@@ -484,19 +465,19 @@ defineExpose({
   }
 
   .filter-type {
-    width: 128px;
+    width: 112px;
   }
 
   .filter-difficulty {
-    width: 108px;
+    width: 96px;
   }
 
   .filter-subject {
-    width: 160px;
+    width: 130px;
   }
 
   .filter-keyword {
-    width: 220px;
+    width: 170px;
   }
 
   .difficulty-tag {
@@ -508,16 +489,15 @@ defineExpose({
   }
 
   .selected-summary {
-    text-align: left;
-    flex: 1;
-  }
-
-  .selected-summary__text {
+    font-size: $font-size-sm;
     color: $text-tertiary;
+    margin-right: auto;
   }
 
-  .selector-filter-card {
-    margin-bottom: $spacing-lg;
+  .selector-filter-bar {
+    padding: $spacing-sm $spacing-md;
+    margin-bottom: $spacing-sm;
+    border-bottom: 1px solid $border-light;
 
     :deep(.el-form) {
       display: flex;
@@ -528,6 +508,17 @@ defineExpose({
       .el-form-item {
         margin-bottom: 0;
       }
+
+      .el-form-item__label {
+        font-size: $font-size-xs;
+        color: $text-tertiary;
+      }
+    }
+  }
+
+  .selector-dialog {
+    :deep(.el-dialog__body) {
+      padding: $spacing-md $spacing-lg;
     }
   }
 
@@ -535,77 +526,64 @@ defineExpose({
     :deep(.el-table__header th) {
       background: $bg-secondary;
       color: $text-tertiary;
-      font-size: $font-size-sm;
+      font-size: $font-size-xs;
       font-weight: $font-weight-medium;
+      padding: $spacing-sm 0;
     }
 
     :deep(.el-table__body td) {
+      padding: $spacing-sm 0;
       vertical-align: top;
     }
 
     :deep(.el-table .cell) {
-      padding: $spacing-sm $spacing-sm;
+      padding: $spacing-xs $spacing-sm;
       word-break: break-word;
       overflow-wrap: anywhere;
+      line-height: $line-height-normal;
     }
   }
 
   .question-preview-cell {
-    .question-type-tag {
-      margin-bottom: $spacing-xs;
-    }
-
     .question-content-text {
       font-size: $font-size-sm;
       line-height: $line-height-relaxed;
-      margin-bottom: $spacing-sm;
+      margin-bottom: $spacing-xs;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
 
-    .options-preview {
-      padding: $spacing-sm;
-      background: $bg-secondary;
-      border-radius: $radius-sm;
-      margin-bottom: $spacing-sm;
+    .question-tags {
+      display: flex;
+      align-items: center;
+      gap: $spacing-xs;
+      flex-wrap: wrap;
 
-      .option-item {
-        padding: $spacing-xs 0;
-        font-size: $font-size-sm;
-      }
-    }
-
-    .correct-answer-preview {
-      font-size: $font-size-sm;
-      color: $text-secondary;
-      padding: $spacing-sm;
-      background: rgba(103, 194, 58, 0.1);
-      border-radius: $radius-sm;
-      margin-top: $spacing-sm;
-
-      .label {
-        font-weight: $font-weight-medium;
-        color: $text-primary;
-      }
-
-      .answer {
-        color: $black;
-        font-weight: $font-weight-medium;
+      .subject-badge {
+        font-size: $font-size-xs;
+        color: $text-tertiary;
+        padding: 0 4px;
+        background: $bg-secondary;
+        border-radius: $radius-sm;
+        line-height: 20px;
       }
     }
   }
 
   .question-pagination {
-    margin-top: $spacing-lg;
+    margin-top: $spacing-md;
     display: flex;
     justify-content: flex-end;
   }
 
   @media (max-width: $breakpoint-md) {
     .questions-editor {
-      .batch-operations {
-        .question-count {
-          margin-left: 0;
-          width: 100%;
-        }
+      .questions-toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: $spacing-sm;
       }
     }
 
@@ -617,7 +595,7 @@ defineExpose({
     .filter-difficulty,
     .filter-subject,
     .filter-keyword {
-      width: min(220px, 100%);
+      width: min(180px, 100%);
     }
   }
 }

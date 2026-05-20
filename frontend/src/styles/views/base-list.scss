@@ -102,17 +102,10 @@
     }
   }
 
-  // 搜索卡片
-  .search-card {
+  // 搜索栏 - 极简，无边框无背景
+  .search-bar {
     margin-bottom: $spacing-lg;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-
-    .el-card__body {
-      padding: $spacing-lg;
-    }
+    padding: $spacing-lg;
 
     .el-form {
       display: flex;
@@ -306,10 +299,8 @@
       }
     }
 
-    .search-card {
-      .el-card__body {
-        padding: $spacing-md;
-      }
+    .search-bar {
+      padding: $spacing-md;
 
       .el-form {
         gap: $spacing-sm;
@@ -318,10 +309,10 @@
           width: 100%;
         }
       }
+    }
 
-      .search-control {
-        width: 100%;
-      }
+    .search-control {
+      width: 100%;
     }
   }
 }

@@ -50,13 +50,12 @@ export interface Course {
   deadline?: string
 }
 
-// 题目相关类型
+// 题目相关类型（题目为纯内容模板，无分值）
 export interface Question {
   id: number
   content: string
   type: 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'FILL_BLANK' | 'ESSAY'
   difficulty: 'EASY' | 'MEDIUM' | 'HARD'
-  score: number
   teacherId: number
   subject: string
   options?: QuestionOption[]
@@ -66,8 +65,17 @@ export interface Question {
   blankCount?: number
 }
 
-// 考试题目（学生视角，不含答案）
-export type QuestionForExam = Omit<Question, 'correctAnswer' | 'explanation' | 'scoringCriteria'>
+// 考试题目（学生视角，不含答案；分值从考试中获取）
+export interface QuestionForExam {
+  id: number
+  content: string
+  type: string
+  difficulty: string
+  score: number
+  subject?: string
+  options?: QuestionOption[]
+  blankCount?: number
+}
 
 export interface QuestionOption {
   id: string
@@ -79,23 +87,18 @@ export interface ScoringCriterion {
   score: number
 }
 
-// 试卷相关类型
+// 试卷相关类型（仅题目ID列表，用于选题工具）
 export interface Paper {
   id: number
   name: string
   description?: string
-  courseId: number
-  courseName?: string
   teacherId: number
-  questions: PaperQuestion[]
-  totalScore: number
-  type: 'MANUAL' | 'AUTO'
-  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+  questionIds: number[]
+  createdAt?: string
 }
 
 export interface TypeConfig {
   count: number
-  score: number
   difficulty?: string
   subject?: string
 }
@@ -103,7 +106,6 @@ export interface TypeConfig {
 export interface AutoGeneratePaperRequest {
   name: string
   description?: string
-  courseId: number
   subject?: string
   difficulty?: string
   singleChoice?: TypeConfig
@@ -112,20 +114,16 @@ export interface AutoGeneratePaperRequest {
   fillBlank?: TypeConfig
   essay?: TypeConfig
   singleChoiceCount?: number
-  singleChoiceScore?: number
   multipleChoiceCount?: number
-  multipleChoiceScore?: number
   trueFalseCount?: number
-  trueFalseScore?: number
   fillBlankCount?: number
-  fillBlankScore?: number
   essayCount?: number
-  essayScore?: number
 }
 
-export interface PaperQuestion {
-  questionId: number
-  score: number
+export interface ManualPaperSubmitData {
+  name: string
+  description: string
+  questionIds: number[]
 }
 
 // 考试相关类型
@@ -135,7 +133,6 @@ export interface Exam {
   description?: string
   courseId: number
   courseName?: string
-  paperId: number
   teacherId: number
   teacherName?: string
   startedAt: string
@@ -143,9 +140,54 @@ export interface Exam {
   duration: number
   totalScore: number
   passScore: number
-  status: 'DRAFT' | 'PUBLISHED' | 'STARTED' | 'ENDED' | 'CANCELLED'
+  status: 'DRAFT' | 'PUBLISHED' | 'STARTED' | 'ENDED'
   createdAt?: string
   studentExamStatus?: 'NOT_STARTED' | 'IN_PROGRESS' | 'SUBMITTED' | 'GRADED'
+  examPaper?: ExamPaperData
+  participantCount?: number
+  submittedCount?: number
+  pendingGradingCount?: number
+}
+
+export interface ExamPaperData {
+  items: ExamQuestion[]
+  typeScores: Record<string, number>
+}
+
+export interface ExamQuestion {
+  questionId: number
+  content: string
+  type: string
+  difficulty: string
+  options?: QuestionOption[]
+  correctAnswer?: unknown
+  explanation?: string
+  blankCount?: number
+  scoringCriteria?: ScoringCriterion[]
+}
+
+// 考试创建/更新专用类型（与后端 DTO 对齐）
+export interface ExamCreateData {
+  title: string
+  description?: string
+  courseId: number
+  paperId: number
+  questionScores: Record<string, number>
+  startedAt: string
+  endedAt: string
+  duration: number
+  passScore: number
+}
+
+export interface ExamUpdateData {
+  title?: string
+  description?: string
+  courseId?: number
+  questionScores?: Record<string, number>
+  startedAt?: string
+  endedAt?: string
+  duration?: number
+  passScore?: number
 }
 
 // 考试记录相关类型
@@ -160,7 +202,7 @@ export interface ExamSession {
   totalScore: number
   answers?: Answer[]
   status: 'NOT_STARTED' | 'IN_PROGRESS' | 'SUBMITTED' | 'GRADED'
-  gradingStatus?: 'PENDING' | 'GRADING' | 'COMPLETED'
+  gradingStatus?: 'PENDING' | 'GRADING' | 'GRADED' | 'COMPLETED'
 }
 
 export interface Answer {
@@ -194,8 +236,8 @@ export interface AiConfig {
   name: string
   baseUrl: string
   apiKey: string
-  models: string[]  // 模型列表
-  activeModel: string | null  // 当前激活的模型
+  models: string[]
+  activeModel: string | null
   createdAt?: string
 }
 
@@ -295,6 +337,7 @@ export interface ExamResultResponse {
   subjectiveScore: number
   totalScore: number
   maxScore: number
+  passScore: number
   gradingStatus: 'PENDING' | 'GRADING' | 'GRADED' | 'COMPLETED'
   answers: AnswerDetail[]
 }

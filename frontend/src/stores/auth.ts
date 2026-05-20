@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { authApi } from '@/api/auth'
 import type { User, LoginRequest, UserResponse, RegisterRequest } from '@/types'
 import { ElMessage } from 'element-plus'
+import { resetLoggingOut } from '@/utils/request'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string>(localStorage.getItem('token') || '')
@@ -25,6 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
         createdAt: userResponse.createdAt
       }
       localStorage.setItem('token', res.data.token)
+      resetLoggingOut()
       ElMessage.success('登录成功')
       return true
     } catch (error) {
@@ -34,9 +36,13 @@ export const useAuthStore = defineStore('auth', () => {
 
   // 注册
   async function register(data: RegisterRequest) {
-    await authApi.register(data)
-    ElMessage.success('注册成功，请登录')
-    return true
+    try {
+      await authApi.register(data)
+      ElMessage.success('注册成功，请登录')
+      return true
+    } catch (error) {
+      return false
+    }
   }
 
   // 获取当前用户信息
@@ -82,6 +88,19 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // Token 续期
+  async function refreshToken() {
+    try {
+      const res = await authApi.refreshToken()
+      token.value = res.data.token
+      localStorage.setItem('token', res.data.token)
+      return true
+    } catch {
+      logout()
+      return false
+    }
+  }
+
   return {
     token,
     user,
@@ -89,6 +108,7 @@ export const useAuthStore = defineStore('auth', () => {
     register,
     getCurrentUser,
     logout,
-    changePassword
+    changePassword,
+    refreshToken
   }
 })

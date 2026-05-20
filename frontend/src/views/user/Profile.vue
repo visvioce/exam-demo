@@ -217,7 +217,7 @@ const passwordRules = reactive<FormRules>({
   oldPassword: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
   newPassword: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '密码长度在 6 到 20 个字符', trigger: 'blur' }
+    { min: 6, message: '密码长度不能少于6个字符', trigger: 'blur' }
   ],
   confirmPassword: [
     { required: true, message: '请确认新密码', trigger: 'blur' },
@@ -287,7 +287,7 @@ async function loadMyCourses() {
 }
 
 async function handleUpdateInfo() {
-  if (!infoFormRef.value) return
+  if (!infoFormRef.value || updatingInfo.value) return
 
   await infoFormRef.value.validate(async (valid) => {
     if (valid) {
@@ -310,7 +310,7 @@ async function handleUpdateInfo() {
 }
 
 async function handleChangePassword() {
-  if (!passwordFormRef.value) return
+  if (!passwordFormRef.value || changingPassword.value) return
 
   await passwordFormRef.value.validate(async (valid) => {
     if (valid) {
@@ -413,7 +413,7 @@ onMounted(async () => {
   }
 
   .settings-card {
-    min-height: 500px;
+    min-height: 300px;
 
     .high-score {
       color: $success;

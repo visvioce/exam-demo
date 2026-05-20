@@ -9,7 +9,7 @@
     </div>
 
     <!-- 搜索栏 -->
-    <el-card class="search-card">
+    <div class="search-bar">
       <el-form :model="searchForm" label-width="80px">
         <el-form-item label="关键字">
           <el-input v-model="searchForm.keyword" placeholder="用户名/昵称" clearable @input="handleKeywordInput" class="search-control" />
@@ -32,7 +32,7 @@
           <el-button @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
-    </el-card>
+    </div>
 
     <!-- 用户列表 -->
     <el-card class="table-card">
@@ -192,7 +192,7 @@ const rules = reactive<FormRules>({
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '长度在 6 到 20 个字符', trigger: 'blur' }
+    { min: 6, message: '密码长度不能少于6个字符', trigger: 'blur' }
   ],
   role: [
     { required: true, message: '请选择角色', trigger: 'change' }
@@ -218,18 +218,18 @@ const getFormRules = computed<FormRules>(() => {
 
 function getRoleType(role: string) {
   const map: Record<string, string> = {
-    ADMIN: 'danger',
-    TEACHER: 'warning',
-    STUDENT: 'success'
+    ADMIN: 'info',
+    TEACHER: 'info',
+    STUDENT: 'info'
   }
   return map[role] || 'info'
 }
 
 function getStatusType(status: string) {
   const map: Record<string, string> = {
-    ACTIVE: 'success',
-    INACTIVE: 'danger',
-    SUSPENDED: 'warning'
+    ACTIVE: 'primary',
+    INACTIVE: 'info',
+    SUSPENDED: 'info'
   }
   return map[status] || 'info'
 }
@@ -290,7 +290,7 @@ async function handleDelete(row: UserResponse) {
 }
 
 async function handleSubmit() {
-  if (!userFormRef.value) return
+  if (!userFormRef.value || submitting.value) return
 
   await userFormRef.value.validate(async (valid) => {
     if (valid) {

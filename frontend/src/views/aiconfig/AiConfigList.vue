@@ -35,7 +35,7 @@
             </el-option>
           </el-option-group>
         </el-select>
-        <el-tag v-if="activeConfig" type="success" class="active-tag" effect="light">
+        <el-tag v-if="activeConfig" type="primary" class="active-tag" effect="light">
           {{ currentActiveModelLabel }}
         </el-tag>
       </div>

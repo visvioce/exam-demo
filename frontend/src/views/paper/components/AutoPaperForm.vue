@@ -4,11 +4,6 @@
       <el-form-item label="试卷名称" prop="name">
         <el-input v-model="form.name" placeholder="请输入试卷名称" />
       </el-form-item>
-      <el-form-item label="所属课程" prop="courseId">
-        <el-select v-model="form.courseId" placeholder="请选择课程" class="full-width">
-          <el-option v-for="course in courses" :key="course.id" :label="course.name" :value="course.id" />
-        </el-select>
-      </el-form-item>
       <el-form-item label="描述">
         <el-input v-model="form.description" type="textarea" :rows="2" placeholder="请输入试卷描述（可选）" />
       </el-form-item>
@@ -17,9 +12,16 @@
 
       <div class="table-wrapper">
         <el-table :data="rows" stripe border class="config-table" table-layout="fixed" :fit="true">
+          <el-table-column label="学科" min-width="130">
+            <template #default="{ row }">
+              <el-select v-model="row.subject" placeholder="学科" clearable allow-create filterable class="full-select" size="small" @change="onRowFilterChange(row)">
+                <el-option v-for="subject in subjects" :key="subject" :label="subject" :value="subject" />
+              </el-select>
+            </template>
+          </el-table-column>
           <el-table-column label="题型" min-width="116">
             <template #default="{ row }">
-              <el-select v-model="row.type" placeholder="题型" class="full-select" size="small">
+              <el-select v-model="row.type" placeholder="题型" class="full-select" size="small" @change="onRowFilterChange(row)">
                 <el-option label="单选题" value="SINGLE_CHOICE" />
                 <el-option label="多选题" value="MULTIPLE_CHOICE" />
                 <el-option label="判断题" value="TRUE_FALSE" />
@@ -28,35 +30,23 @@
               </el-select>
             </template>
           </el-table-column>
-          <el-table-column label="学科" min-width="152">
-            <template #default="{ row }">
-              <el-select v-model="row.subject" placeholder="学科" clearable allow-create filterable class="full-select" size="small">
-                <el-option v-for="subject in subjects" :key="subject" :label="subject" :value="subject" />
-              </el-select>
-            </template>
-          </el-table-column>
           <el-table-column label="难度" min-width="96">
             <template #default="{ row }">
-              <el-select v-model="row.difficulty" placeholder="难度" clearable class="full-select" size="small">
+              <el-select v-model="row.difficulty" placeholder="不限" clearable class="full-select" size="small" @change="onRowFilterChange(row)">
                 <el-option label="简单" value="EASY" />
                 <el-option label="中等" value="MEDIUM" />
                 <el-option label="困难" value="HARD" />
               </el-select>
             </template>
           </el-table-column>
-          <el-table-column label="题数" min-width="92">
+          <el-table-column label="题数" min-width="100">
             <template #default="{ row }">
-              <el-input-number v-model="row.count" :min="1" :max="100" controls-position="right" size="small" class="num-input" />
-            </template>
-          </el-table-column>
-          <el-table-column label="分值" min-width="92">
-            <template #default="{ row }">
-              <el-input-number v-model="row.score" :min="1" :max="100" controls-position="right" size="small" class="num-input" />
-            </template>
-          </el-table-column>
-          <el-table-column label="小计" min-width="72" align="center">
-            <template #default="{ row }">
-              <span class="subtotal">{{ row.count * row.score }}</span>
+              <div class="count-cell">
+                <el-input-number v-model="row.count" :min="1" :max="row.maxCount || 100" controls-position="right" size="small" class="num-input" />
+                <span v-if="row.availableCount !== null" class="available-tip">
+                  可用 {{ row.availableCount }} 题
+                </span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="操作" min-width="68" align="center">
@@ -82,10 +72,6 @@
           <span>总题数：</span>
           <span class="highlight">{{ totalQuestions }} 题</span>
         </div>
-        <div class="summary-item">
-          <span>总分：</span>
-          <span class="highlight">{{ totalScore }} 分</span>
-        </div>
       </div>
     </el-form>
   </div>
@@ -96,32 +82,29 @@ import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
-import type { Course } from '@/types'
 import DeleteActionButton from '@/components/DeleteActionButton.vue'
+import { questionApi } from '@/api/question'
 
 interface PaperRow {
   type: string
   subject: string
   difficulty: string
   count: number
-  score: number
+  maxCount: number
+  availableCount: number | null
 }
 
 interface SubmitData {
   name: string
   description: string
-  courseId: number | null
-  configs: PaperRow[]
-  // 兼容后端的数据结构
-  singleChoice: any
-  multipleChoice: any
-  trueFalse: any
-  fillBlank: any
-  essay: any
+  singleChoice: PaperRow | undefined
+  multipleChoice: PaperRow | undefined
+  trueFalse: PaperRow | undefined
+  fillBlank: PaperRow | undefined
+  essay: PaperRow | undefined
 }
 
 const props = defineProps<{
-  courses: Course[]
   subjects: string[]
 }>()
 
@@ -133,29 +116,63 @@ const formRef = ref<FormInstance>()
 
 const form = reactive({
   name: '',
-  description: '',
-  courseId: null as number | null
+  description: ''
 })
 
-const rows = ref<PaperRow[]>([
-  { type: '', subject: '', difficulty: '', count: 5, score: 2 }
-])
+function createEmptyRow(): PaperRow {
+  return { type: '', subject: '', difficulty: '', count: 5, maxCount: 100, availableCount: null }
+}
+
+const rows = ref<PaperRow[]>([createEmptyRow()])
 
 const rules = reactive<FormRules>({
-  name: [{ required: true, message: '请输入试卷名称', trigger: 'blur' }],
-  courseId: [{ required: true, message: '请选择课程', trigger: 'change' }]
+  name: [{ required: true, message: '请输入试卷名称', trigger: 'blur' }]
 })
 
 const totalQuestions = computed(() => {
   return rows.value.reduce((sum, row) => sum + (row.type ? row.count : 0), 0)
 })
 
-const totalScore = computed(() => {
-  return rows.value.reduce((sum, row) => sum + (row.type ? row.count * row.score : 0), 0)
-})
+let fetchTimer: ReturnType<typeof setTimeout> | null = null
+
+function queryAvailableCount(row: PaperRow) {
+  if (!row.type) {
+    row.availableCount = null
+    row.maxCount = 100
+    return
+  }
+
+  if (fetchTimer) clearTimeout(fetchTimer)
+  fetchTimer = setTimeout(async () => {
+    try {
+      const res = await questionApi.getAvailableCount({
+        type: row.type,
+        subject: row.subject || undefined,
+        difficulty: row.difficulty || undefined
+      })
+      const available = res.data.count
+      row.availableCount = available
+      row.maxCount = available > 0 ? available : 1
+      if (row.count > available && available > 0) {
+        row.count = available
+      }
+      if (available === 0) {
+        row.count = 1
+        row.maxCount = 1
+      }
+    } catch {
+      row.availableCount = null
+      row.maxCount = 100
+    }
+  }, 300)
+}
+
+function onRowFilterChange(row: PaperRow) {
+  queryAvailableCount(row)
+}
 
 function addRow() {
-  rows.value.push({ type: '', subject: '', difficulty: '', count: 5, score: 2 })
+  rows.value.push(createEmptyRow())
 }
 
 function removeRow(index: number) {
@@ -167,24 +184,51 @@ function handleSubmit() {
 
   formRef.value.validate(async (valid) => {
     if (valid) {
-      // 过滤掉空行
-      const validRows = rows.value.filter(row => row.type && row.count > 0)
+      const validRows = rows.value.filter(row => row.type && row.subject && row.count > 0)
 
       if (validRows.length === 0) {
-        ElMessage.warning('请至少添加一行题目配置')
+        ElMessage.warning('请至少添加一行完整的题目配置（学科和题型不能为空）')
         return
       }
 
-      // 转换成后端数据格式（保持兼容性）
-      const singleChoice: any = validRows.find(r => r.type === 'SINGLE_CHOICE')
-      const multipleChoice: any = validRows.find(r => r.type === 'MULTIPLE_CHOICE')
-      const trueFalse: any = validRows.find(r => r.type === 'TRUE_FALSE')
-      const fillBlank: any = validRows.find(r => r.type === 'FILL_BLANK')
-      const essay: any = validRows.find(r => r.type === 'ESSAY')
+      const incompleteRows = rows.value.filter(row => row.type && !row.subject)
+      if (incompleteRows.length > 0) {
+        ElMessage.warning('已选择题型的行必须填写学科')
+        return
+      }
+
+      const typeSet = new Set<string>()
+      const duplicateTypes: string[] = []
+      for (const row of validRows) {
+        if (typeSet.has(row.type)) {
+          if (!duplicateTypes.includes(row.type)) {
+            duplicateTypes.push(row.type)
+          }
+        } else {
+          typeSet.add(row.type)
+        }
+      }
+      if (duplicateTypes.length > 0) {
+        const typeNames: Record<string, string> = {
+          SINGLE_CHOICE: '单选题',
+          MULTIPLE_CHOICE: '多选题',
+          TRUE_FALSE: '判断题',
+          FILL_BLANK: '填空题',
+          ESSAY: '简答题'
+        }
+        const names = duplicateTypes.map(t => typeNames[t] || t).join('、')
+        ElMessage.warning(`题型 "${names}" 存在多行配置，请合并为一行或删除重复配置`)
+        return
+      }
+
+      const singleChoice: PaperRow | undefined = validRows.find(r => r.type === 'SINGLE_CHOICE')
+      const multipleChoice: PaperRow | undefined = validRows.find(r => r.type === 'MULTIPLE_CHOICE')
+      const trueFalse: PaperRow | undefined = validRows.find(r => r.type === 'TRUE_FALSE')
+      const fillBlank: PaperRow | undefined = validRows.find(r => r.type === 'FILL_BLANK')
+      const essay: PaperRow | undefined = validRows.find(r => r.type === 'ESSAY')
 
       const data: SubmitData = {
         ...form,
-        configs: validRows,
         singleChoice,
         multipleChoice,
         trueFalse,
@@ -223,10 +267,23 @@ defineExpose({
     width: 100%;
   }
 
+  .count-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    .available-tip {
+      font-size: 11px;
+      color: $text-tertiary;
+      line-height: 1;
+      white-space: nowrap;
+    }
+  }
+
   .table-wrapper {
     margin-top: $spacing-sm;
     width: 100%;
-    border-radius: 12px;
+    border-radius: $radius-xl;
     background: $bg-primary;
     overflow: hidden;
   }
@@ -270,16 +327,17 @@ defineExpose({
 
     :deep(.el-select) {
       .el-input__wrapper {
-        border-radius: 8px;
+        border-radius: $radius-lg;
         background: $bg-primary;
-        box-shadow: 0 0 0 1px $border-color inset;
+        border: 1px solid $border-color;
 
         &:hover {
-          box-shadow: 0 0 0 1px #{$text-quaternary} inset;
+          border-color: $text-quaternary;
         }
 
         &.is-focus {
-          box-shadow: 0 0 0 1px #{$text-tertiary} inset;
+          border-color: $text-tertiary;
+          box-shadow: $focus-ring;
         }
       }
     }
@@ -289,8 +347,8 @@ defineExpose({
 
       .el-input__wrapper {
         padding: 0 8px;
-        border-radius: 8px;
-        box-shadow: 0 0 0 1px $border-color inset;
+        border-radius: $radius-lg;
+        border: 1px solid $border-color;
       }
 
       .el-input-number__increase,
@@ -332,7 +390,7 @@ defineExpose({
     margin-top: 15px;
     border-color: $border-color;
     color: $text-secondary;
-    border-radius: 10px;
+    border-radius: $radius-lg;
     height: 38px;
 
     &:hover {

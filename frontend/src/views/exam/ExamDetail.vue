@@ -21,15 +21,6 @@
         <el-descriptions-item label="考试说明" :span="2">{{ exam?.description || '-' }}</el-descriptions-item>
       </el-descriptions>
 
-      <!-- 试卷信息 -->
-      <h4 class="section-title">试卷信息</h4>
-      <el-descriptions :column="2" border>
-        <el-descriptions-item label="试卷名称">{{ paper?.name || '考试题目' }}</el-descriptions-item>
-        <el-descriptions-item label="试卷类型">{{ paper ? getTypeName(paper.type) : '-' }}</el-descriptions-item>
-        <el-descriptions-item label="考试时长">{{ exam?.duration ? exam.duration + '分钟' : '不限时' }}</el-descriptions-item>
-        <el-descriptions-item label="题目数量">{{ displayQuestionRows.length }}道</el-descriptions-item>
-      </el-descriptions>
-
       <!-- 题目列表 -->
       <h4 class="section-title">题目列表</h4>
       <el-table :data="displayQuestionRows" border v-if="displayQuestionRows.length" table-layout="auto" :fit="true">
@@ -134,14 +125,12 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { examApi } from '@/api/exam'
-import { paperApi } from '@/api/paper'
-import { questionApi } from '@/api/question'
+import { examApi, examSessionApi } from '@/api/exam'
 import { ElMessage } from 'element-plus'
-import { formatDate, getStatusColor as formatStatusColor, getStatusName as formatStatusName } from '@/utils/format'
+import { formatDate, getStatusColor as formatStatusColor, getStatusName as formatStatusName, getTypeName, getTypeColor } from '@/utils/format'
 import { getErrorMessage } from '@/utils/error'
 import { Timer, Document, TrendCharts, Checked } from '@element-plus/icons-vue'
-import type { Exam, Paper, Question, QuestionForExam } from '@/types'
+import type { Exam, ExamQuestion } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -149,33 +138,30 @@ const authStore = useAuthStore()
 
 const loading = ref(false)
 const exam = ref<Exam | null>(null)
-const paper = ref<Paper | null>(null)
-const questions = ref<Question[]>([])
-const examQuestions = ref<QuestionForExam[]>([])
 
-// 考试须知相关
 const instructionsDialogVisible = ref(false)
 const instructionsConfirmed = ref(false)
 
 const examId = computed(() => Number(route.params.id))
 
-const paperQuestions = computed(() => paper.value?.questions || [])
 const isStudent = computed(() => authStore.user?.role === 'STUDENT')
 
-const displayQuestionRows = computed(() => {
-  if (isStudent.value) {
-    return examQuestions.value.map((question) => ({
-      id: question.id,
-      content: question.content,
-      type: question.type,
-      score: Number(question.score ?? 0)
-    }))
+function computeQuestionScore(type: string, blankCount: number | undefined, typeScores: Record<string, number>): number {
+  const base = typeScores[type] || 0
+  if (type === 'FILL_BLANK' && blankCount && blankCount > 0) {
+    return base * blankCount
   }
-  return paperQuestions.value.map((paperQuestion) => ({
-    id: paperQuestion.questionId,
-    content: getQuestionContent(paperQuestion.questionId),
-    type: getQuestionType(paperQuestion.questionId),
-    score: paperQuestion.score
+  return base
+}
+
+const displayQuestionRows = computed(() => {
+  const items = exam.value?.examPaper?.items ?? []
+  const typeScores = exam.value?.examPaper?.typeScores ?? {}
+  return items.map((item: ExamQuestion) => ({
+    id: item.questionId,
+    content: item.content,
+    type: item.type,
+    score: computeQuestionScore(item.type, item.blankCount, typeScores)
   }))
 })
 
@@ -207,49 +193,11 @@ function getStatusName(status?: string) {
 }
 
 function getStatusColor(status?: string) {
-  return status ? formatStatusColor(status) : ''
+  return status ? formatStatusColor(status) : undefined
 }
 
 function goBack() {
   router.back()
-}
-
-function getTypeName(type?: string) {
-  if (!type) return ''
-  const map: Record<string, string> = {
-    SINGLE_CHOICE: '单选题',
-    MULTIPLE_CHOICE: '多选题',
-    TRUE_FALSE: '判断题',
-    FILL_BLANK: '填空题',
-    ESSAY: '简答题',
-    MANUAL: '手动组卷',
-    AUTO: '自动组卷',
-    RANDOM: '自动组卷',
-    MIXED: '自动组卷'
-  }
-  return map[type] || type
-}
-
-function getTypeColor(type?: string) {
-  if (!type) return ''
-  const map: Record<string, string> = {
-    SINGLE_CHOICE: 'primary',
-    MULTIPLE_CHOICE: 'success',
-    TRUE_FALSE: 'warning',
-    FILL_BLANK: 'info',
-    ESSAY: 'danger'
-  }
-  return map[type] || ''
-}
-
-function getQuestionContent(questionId: number): string {
-  const q = questions.value.find(item => item.id === questionId)
-  return q ? q.content.substring(0, 100) + (q.content.length > 100 ? '...' : '') : '未知题目'
-}
-
-function getQuestionType(questionId: number): string {
-  const q = questions.value.find(item => item.id === questionId)
-  return q?.type || ''
 }
 
 async function loadExam() {
@@ -257,49 +205,19 @@ async function loadExam() {
   try {
     const res = await examApi.getById(examId.value)
     exam.value = res.data
-
-    if (isStudent.value) {
-      await loadExamQuestions()
-      return
-    }
-
-    if (exam.value?.paperId) {
-      await loadPaper(exam.value.paperId)
+    if (isStudent.value && exam.value) {
+      try {
+        const sessionsRes = await examSessionApi.getMySessions()
+        const session = sessionsRes.data.find((s) => s.examId === examId.value)
+        if (session) {
+          exam.value = { ...exam.value, studentExamStatus: session.status }
+        }
+      } catch { /* silently ignore */ }
     }
   } catch (error) {
     ElMessage.error('加载考试失败')
   } finally {
     loading.value = false
-  }
-}
-
-async function loadExamQuestions() {
-  try {
-    const res = await examApi.getQuestions(examId.value)
-    examQuestions.value = res.data || []
-  } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '加载题目失败'))
-  }
-}
-
-async function loadPaper(paperId: number) {
-  try {
-    const res = await paperApi.getById(paperId)
-    paper.value = res.data
-    if (paper.value?.questions?.length) {
-      await loadQuestions(paper.value.questions.map(q => q.questionId))
-    }
-  } catch (error) {
-    ElMessage.error('加载试卷失败')
-  }
-}
-
-async function loadQuestions(questionIds: number[]) {
-  try {
-    const res = await questionApi.list()
-    questions.value = res.data.filter(q => questionIds.includes(q.id))
-  } catch (error) {
-    ElMessage.error('加载题目失败')
   }
 }
 

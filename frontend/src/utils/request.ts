@@ -6,6 +6,7 @@
  *
  * 功能特性：
  * - 自动添加 JWT Token 到请求头
+ * - Token 过期自动续期并重试请求
  * - 统一的响应数据格式处理
  * - 401 未授权自动跳转登录页
  * - 统一的错误提示
@@ -13,10 +14,11 @@
  * - 请求超时处理（默认 15 秒）
  */
 import axios from 'axios'
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import type { ApiResponse } from '@/types'
+import router from '@/router'
 
 /**
  * Axios 实例配置
@@ -30,10 +32,67 @@ const service: AxiosInstance = axios.create({
 
 type ApiEnvelope<T> = ApiResponse<T>
 
+let isRefreshing = false
+let refreshSubscribers: ((token: string) => void)[] = []
+
+function subscribeTokenRefresh(cb: (token: string) => void) {
+  refreshSubscribers.push(cb)
+}
+
+function onTokenRefreshed(newToken: string) {
+  refreshSubscribers.forEach(cb => cb(newToken))
+  refreshSubscribers = []
+}
+
+async function tryRefreshToken(): Promise<string | null> {
+  if (isRefreshing) {
+    return new Promise((resolve) => {
+      subscribeTokenRefresh((token: string) => {
+        resolve(token)
+      })
+    })
+  }
+
+  isRefreshing = true
+  const authStore = useAuthStore()
+
+  try {
+    const currentToken = authStore.token
+    if (!currentToken) {
+      return null
+    }
+
+    const response = await axios.post<ApiEnvelope<{ token: string }>>(
+      `${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/refresh`,
+      {},
+      {
+        headers: { Authorization: `Bearer ${currentToken}` }
+      }
+    )
+
+    const newToken = response.data.data?.token
+    if (newToken) {
+      authStore.token = newToken
+      localStorage.setItem('token', newToken)
+      onTokenRefreshed(newToken)
+      return newToken
+    }
+    return null
+  } catch {
+    return null
+  } finally {
+    isRefreshing = false
+  }
+}
+
 /**
  * 防止重复登出跳转
  */
 let isLoggingOut = false
+
+export function resetLoggingOut() {
+  isLoggingOut = false
+}
 
 /**
  * 请求拦截器
@@ -56,8 +115,8 @@ service.interceptors.request.use(
  * 响应拦截器
  * 功能：
  * 1. 处理文件下载请求（直接返回原始响应）
- * 2. 统一处理业务错误码（code !== 200）
- * 3. 401 未授权时自动登出并跳转登录页
+ * 2. 401 时自动尝试 Token 续期，成功后重试请求
+ * 3. 统一处理业务错误码（code !== 200）
  * 4. 统一错误提示
  */
 service.interceptors.response.use(
@@ -65,22 +124,19 @@ service.interceptors.response.use(
     const typedResponse = response as AxiosResponse<ApiEnvelope<unknown> | Blob>
     const res = typedResponse.data
 
-    // 如果是文件下载，直接返回原始响应
     if (typedResponse.config.responseType === 'blob') {
       return typedResponse as never
     }
 
-    // 业务状态码判断（后端统一返回格式：{ code, message, data }）
     if ((res as ApiEnvelope<unknown>).code !== 200) {
       ElMessage.error((res as ApiEnvelope<unknown>).message || '请求失败')
 
-      // 401: Token 过期或未登录，清除登录状态并跳转登录页
       if ((res as ApiEnvelope<unknown>).code === 401) {
         if (isLoggingOut) return Promise.reject(new Error('重复登出'))
         isLoggingOut = true
         const authStore = useAuthStore()
         authStore.logout()
-        window.location.href = '/login'
+        router.push('/login')
       }
 
       return Promise.reject(new Error((res as ApiEnvelope<unknown>).message || 'Error'))
@@ -88,7 +144,32 @@ service.interceptors.response.use(
 
     return res as never
   },
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      const requestUrl = originalRequest.url || ''
+      if (requestUrl.includes('/auth/refresh') || requestUrl.includes('/auth/login')) {
+        return Promise.reject(error)
+      }
+
+      originalRequest._retry = true
+
+      const newToken = await tryRefreshToken()
+
+      if (newToken) {
+        originalRequest.headers['Authorization'] = `Bearer ${newToken}`
+        return service(originalRequest)
+      }
+
+      if (isLoggingOut) return Promise.reject(error)
+      isLoggingOut = true
+      const authStore = useAuthStore()
+      authStore.logout()
+      router.push('/login')
+      return Promise.reject(error)
+    }
+
     let message = '请求失败'
     if (error.response) {
       const status = error.response.status
@@ -96,11 +177,6 @@ service.interceptors.response.use(
       switch (status) {
         case 401:
           message = '未授权，请重新登录'
-          if (isLoggingOut) return Promise.reject(error)
-          isLoggingOut = true
-          const authStore = useAuthStore()
-          authStore.logout()
-          window.location.href = '/login'
           break
         case 403:
           message = responseData?.message || '拒绝访问，权限不足'

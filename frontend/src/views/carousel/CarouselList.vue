@@ -9,7 +9,7 @@
     </div>
 
     <!-- 搜索栏 -->
-    <el-card class="search-card">
+    <div class="search-bar">
       <el-form :model="searchForm" label-width="80px">
         <el-form-item label="关键字">
           <el-input v-model="searchForm.keyword" placeholder="轮播图标题" clearable @input="handleKeywordInput" class="search-control" />
@@ -32,7 +32,7 @@
           <el-button @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
-    </el-card>
+    </div>
 
     <!-- 轮播图卡片列表 -->
     <div class="carousel-grid" v-loading="loading">

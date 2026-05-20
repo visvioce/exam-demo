@@ -10,7 +10,7 @@
           <span>题目数：{{ questions.length }}道</span>
           <span v-if="examResult" class="score-display">
             得分：<span :class="getScoreClass(examResult.totalScore, examResult.maxScore)">{{ examResult.totalScore }}</span> / {{ examResult.maxScore }}分
-            <el-tag v-if="hasPendingGrading" type="warning" size="small" style="margin-left: 8px">
+            <el-tag v-if="hasPendingGrading" type="info" size="small" style="margin-left: 8px">
               部分题目待批阅
             </el-tag>
           </span>
@@ -23,20 +23,18 @@
 
     <!-- 题目区域 -->
     <div class="questions-area" v-if="!loading && questions.length > 0">
-      <el-card v-for="(question, index) in questions" :key="question.id" class="question-card"
+      <div v-for="(question, index) in questions" :key="question.questionId" class="question-card"
         :class="{ 'correct': isCorrect(index), 'wrong': isWrong(index) }">
-        <template #header>
-          <div class="question-header">
-            <span class="question-index">第 {{ index + 1 }} 题</span>
-            <el-tag :type="getTypeColor(question.type)" size="small">{{ getTypeName(question.type) }}</el-tag>
-            <span class="question-score">（{{ questionScores[index] }}分）</span>
-            <span v-if="getQuestionStatus(index)" class="question-status">
-              <el-tag :type="getQuestionStatusType(index)" size="small">
-                {{ getQuestionStatus(index) }}
-              </el-tag>
-            </span>
-          </div>
-        </template>
+        <div class="question-header">
+          <span class="question-index">{{ index + 1 }}.</span>
+          <el-tag :type="getTypeColor(question.type)" size="small">{{ getTypeName(question.type) }}</el-tag>
+          <span class="question-score">（{{ questionScores[index] }}分）</span>
+          <span v-if="getQuestionStatus(index)" class="question-status">
+            <el-tag :type="getQuestionStatusType(index)" size="small">
+              {{ getQuestionStatus(index) }}
+            </el-tag>
+          </span>
+        </div>
 
         <div class="question-content" v-html="sanitizeHtml(question.content)"></div>
 
@@ -106,11 +104,15 @@
             <span class="answer">{{ getUserAnswer(index) || '未作答' }}</span>
           </div>
           <div class="grading-status" v-if="isPendingGrading(index)">
-            <el-tag type="warning">等待老师批阅</el-tag>
+            <el-tag type="info">等待老师批阅</el-tag>
           </div>
           <div class="score-display" v-else-if="getQuestionScore(index) !== null">
             <span class="label">得分：</span>
             <span class="score">{{ getQuestionScore(index) }} / {{ questionScores[index] }}分</span>
+          </div>
+          <div class="teacher-comment-box" v-if="getTeacherComment(index)">
+            <span class="label">老师评语：</span>
+            <span class="comment">{{ getTeacherComment(index) }}</span>
           </div>
         </div>
 
@@ -119,17 +121,15 @@
           <el-divider content-position="left">解析</el-divider>
           <div class="explanation-content" v-html="sanitizeHtml(question.explanation)"></div>
         </div>
-      </el-card>
+      </div>
     </div>
 
     <!-- 答题卡 -->
     <div class="answer-sheet" v-if="!loading && questions.length > 0">
-      <el-card>
-        <template #header>
-          <div class="answer-sheet-header">
-            <span>答题卡</span>
-          </div>
-        </template>
+      <div class="answer-sheet-card">
+        <div class="answer-sheet-header">
+          <span>答题卡</span>
+        </div>
         <div class="answer-grid">
           <div
             v-for="(_, index) in questions"
@@ -146,7 +146,7 @@
           <span><span class="dot wrong"></span> 错误</span>
           <span><span class="dot pending"></span> 待批阅</span>
         </div>
-      </el-card>
+      </div>
     </div>
   </div>
 </template>
@@ -159,49 +159,27 @@ import { ElMessage } from 'element-plus'
 import { CircleCheck } from '@element-plus/icons-vue'
 import { sanitizeHtml } from '@/utils/sanitize'
 import { getErrorMessage } from '@/utils/error'
+import { getTypeName, getTypeColor } from '@/utils/format'
 // formatAnswerDisplay 已在模板中直接使用 formatAnswer 函数
-import type { Exam, Question, ExamResultResponse, AnswerDetail } from '@/types'
+import type { Exam, ExamQuestion, ExamResultResponse, AnswerDetail } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 
 const loading = ref(false)
 const exam = ref<Exam | null>(null)
-const questions = ref<Question[]>([])
+const questions = ref<ExamQuestion[]>([])
 const questionScores = ref<number[]>([])
 const examResult = ref<ExamResultResponse | null>(null)
 const answerDetails = ref<AnswerDetail[]>([])
 
 const examId = computed(() => Number(route.params.id))
 
-function getTypeName(type: string) {
-  const map: Record<string, string> = {
-    SINGLE_CHOICE: '单选题',
-    MULTIPLE_CHOICE: '多选题',
-    TRUE_FALSE: '判断题',
-    FILL_BLANK: '填空题',
-    ESSAY: '简答题'
-  }
-  return map[type] || type
-}
-
-function getTypeColor(type: string) {
-  const map: Record<string, string> = {
-    SINGLE_CHOICE: 'primary',
-    MULTIPLE_CHOICE: 'success',
-    TRUE_FALSE: 'warning',
-    FILL_BLANK: 'info',
-    ESSAY: 'danger'
-  }
-  return map[type] || ''
-}
-
 function goBack() {
   router.back()
 }
 
-function getScoreClass(score: number, maxScore: number) {
-  void maxScore
+function getScoreClass(score: number, _maxScore: number) {
   const passScore = exam.value?.passScore || 60
   return score >= passScore ? 'pass' : 'fail'
 }
@@ -257,17 +235,22 @@ function getQuestionStatusType(index: number): string {
   const question = questions.value[index]
 
   if (question?.type === 'ESSAY') {
-    return detail?.gradingStatus === 'PENDING' ? 'warning' : 'success'
+    return detail?.gradingStatus === 'PENDING' ? 'info' : 'primary'
   }
 
-  if (detail?.isCorrect === true) return 'success'
-  if (detail?.isCorrect === false) return 'danger'
+  if (detail?.isCorrect === true) return 'primary'
+  if (detail?.isCorrect === false) return 'info'
   return 'info'
 }
 
 function getQuestionScore(index: number): number | null {
   const detail = answerDetails.value[index]
   return detail?.score ?? null
+}
+
+function getTeacherComment(index: number): string {
+  const detail = answerDetails.value[index]
+  return detail?.teacherComment || ''
 }
 
 function isCorrectAnswer(index: number, optionId: string): boolean {
@@ -287,6 +270,19 @@ function isUserAnswer(index: number, optionId: string): boolean {
   if (Array.isArray(detail.answer)) {
     return detail.answer.includes(optionId)
   }
+
+  const question = questions.value[index]
+  if (question?.type === 'MULTIPLE_CHOICE' && typeof detail.answer === 'string') {
+    try {
+      const parsed = JSON.parse(detail.answer)
+      if (Array.isArray(parsed)) {
+        return parsed.includes(optionId)
+      }
+    } catch {
+      return false
+    }
+  }
+
   return String(detail.answer) === optionId
 }
 
@@ -300,22 +296,33 @@ function scrollToQuestion(index: number) {
 async function loadData() {
   loading.value = true
   try {
-    // 获取考试信息
+    const examReviewRes = await examApi.getReviewQuestions(examId.value)
+    questions.value = examReviewRes.data
+
     const examRes = await examApi.getById(examId.value)
     exam.value = examRes.data
 
-    // 获取考试会话
+    const examQuestionsData = exam.value?.examPaper
+    if (examQuestionsData?.items) {
+      const typeScores = examQuestionsData.typeScores || {}
+      questionScores.value = examQuestionsData.items.map(q => {
+        const base = typeScores[q.type] || 0
+        if (q.type === 'FILL_BLANK' && q.blankCount && q.blankCount > 0) {
+          return base * q.blankCount
+        }
+        return base
+      })
+    }
+
     const sessionsRes = await examSessionApi.getMySessions()
     const session = sessionsRes.data.find((s: { examId: number }) => s.examId === examId.value)
 
-    // 权限检查：学生必须已参加考试才能查看回顾
     if (!session) {
       ElMessage.warning('您尚未参加该考试，无法查看回顾')
       router.push('/exam')
       return
     }
 
-    // 权限检查：考试未结束且学生未提交时，不能查看回顾
     const now = new Date().getTime()
     const end = new Date(exam.value.endedAt).getTime()
     if (now < end && session.status === 'IN_PROGRESS') {
@@ -324,22 +331,6 @@ async function loadData() {
       return
     }
 
-    // 获取试卷信息以获取分值
-    const paperRes = await examApi.getPaper(examId.value)
-    const paper = paperRes.data
-
-    // 获取完整题目信息（包含正确答案和解析）
-    const questionsRes = await examApi.getReviewQuestions(examId.value)
-    questions.value = questionsRes.data
-
-    if (paper?.questions) {
-      // 创建题目ID到分值的映射
-      const scoreMap = new Map(paper.questions.map((p: { questionId: number; score: number }) => [p.questionId, p.score]))
-      // 按照试卷顺序设置分值
-      questionScores.value = questions.value.map(q => scoreMap.get(q.id) || 0)
-    }
-
-    // 获取考试结果
     const resultRes = await examSessionApi.getExamResult(session.id)
     examResult.value = resultRes.data
     answerDetails.value = resultRes.data.answers || []
@@ -398,11 +389,11 @@ onMounted(() => {
           font-weight: 600;
 
           .pass {
-            color: $success;
+            color: $text-primary;
           }
 
           .fail {
-            color: $danger;
+            color: $text-tertiary;
           }
         }
       }
@@ -413,28 +404,36 @@ onMounted(() => {
     min-width: 0;
 
     .question-card {
+      padding: $spacing-lg;
       margin-bottom: $spacing-lg;
       border: 1px solid $border-color;
+      border-radius: $radius-md;
+      background: $bg-primary;
 
       &.correct {
-        border-left: 3px solid $success;
+        border-left: 3px solid $black;
       }
 
       &.wrong {
-        border-left: 3px solid $danger;
+        border-left: 3px solid $text-tertiary;
       }
 
       .question-header {
         display: flex;
         align-items: center;
         gap: $spacing-sm;
+        padding-bottom: $spacing-md;
+        margin-bottom: $spacing-md;
+        border-bottom: 1px solid $border-light;
 
         .question-index {
           font-weight: 600;
+          min-width: 24px;
         }
 
         .question-score {
           color: $text-tertiary;
+          font-size: $font-size-sm;
         }
 
         .question-status {
@@ -453,20 +452,20 @@ onMounted(() => {
           display: flex;
           align-items: center;
           gap: $spacing-md;
-          padding: $spacing-sm $spacing-md;
-          margin-bottom: $spacing-sm;
+          padding: $spacing-xs $spacing-md;
+          margin-bottom: $spacing-xs;
           border-radius: $radius-sm;
           border: 1px solid $border-light;
           background: $bg-secondary;
 
           &.correct-answer {
-            background: $success-bg;
-            border-color: $success;
+            background: $bg-secondary;
+            border-color: $black;
           }
 
           &.user-answer:not(.correct-answer) {
-            background: $danger-bg;
-            border-color: $danger;
+            background: $bg-secondary;
+            border-color: $text-tertiary;
           }
 
           .option-label {
@@ -476,7 +475,7 @@ onMounted(() => {
 
           .correct-icon {
             margin-left: auto;
-            color: $success;
+            color: $black;
             font-size: $font-size-lg;
           }
         }
@@ -502,8 +501,8 @@ onMounted(() => {
         }
 
         .correct-answer-box {
-          background: $success-bg;
-          border-color: $success;
+          background: $bg-secondary;
+          border-color: $text-tertiary;
         }
 
         .grading-status {
@@ -518,8 +517,24 @@ onMounted(() => {
           }
 
           .score {
-            color: $success;
+            color: $text-primary;
             font-weight: 600;
+          }
+        }
+
+        .teacher-comment-box {
+          margin-top: $spacing-sm;
+          padding: $spacing-sm $spacing-md;
+          background: $bg-secondary;
+          border: 1px solid $border-light;
+          border-radius: $radius-sm;
+
+          .label {
+            font-weight: 600;
+          }
+
+          .comment {
+            color: $text-secondary;
           }
         }
       }
@@ -543,16 +558,27 @@ onMounted(() => {
     position: sticky;
     top: calc(#{$nav-height} + #{$spacing-lg});
 
+    .answer-sheet-card {
+      border: 1px solid $border-color;
+      border-radius: $radius-md;
+      background: $bg-primary;
+      overflow: hidden;
+    }
+
     .answer-sheet-header {
       font-weight: 600;
       color: $text-primary;
+      padding: $spacing-md $spacing-lg;
+      border-bottom: 1px solid $border-light;
+      background: $bg-secondary;
     }
 
     .answer-grid {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
       gap: $spacing-sm;
-      margin-bottom: $spacing-md;
+      padding: $spacing-lg;
+      margin-bottom: 0;
 
       .answer-item {
         aspect-ratio: 1;
@@ -573,21 +599,21 @@ onMounted(() => {
         }
 
         &.correct {
-          background: $success;
+          background: $black;
           color: #fff;
-          border-color: $success;
+          border-color: $black;
         }
 
         &.wrong {
-          background: $danger;
+          background: $text-tertiary;
           color: #fff;
-          border-color: $danger;
+          border-color: $text-tertiary;
         }
 
         &.pending {
-          background: $warning;
-          color: #fff;
-          border-color: $warning;
+          background: $border-color;
+          color: $text-secondary;
+          border-color: $border-color;
         }
       }
     }
@@ -596,6 +622,8 @@ onMounted(() => {
       display: flex;
       flex-wrap: wrap;
       gap: $spacing-md;
+      padding: $spacing-sm $spacing-lg $spacing-md;
+      border-top: 1px solid $border-light;
       font-size: $font-size-xs;
       color: $text-tertiary;
 
@@ -611,15 +639,15 @@ onMounted(() => {
         border-radius: 2px;
 
         &.correct {
-          background: $success;
+          background: $black;
         }
 
         &.wrong {
-          background: $danger;
+          background: $text-tertiary;
         }
 
         &.pending {
-          background: $warning;
+          background: $border-color;
         }
       }
     }

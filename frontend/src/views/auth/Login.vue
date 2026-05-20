@@ -140,7 +140,7 @@ onUnmounted(() => {
 })
 
 async function handleLogin() {
-  if (!loginFormRef.value) return
+  if (!loginFormRef.value || loading.value) return
   await loginFormRef.value.validate(async (valid) => {
     if (valid) {
       loading.value = true
