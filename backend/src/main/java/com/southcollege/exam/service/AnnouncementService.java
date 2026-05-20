@@ -1,20 +1,25 @@
 package com.southcollege.exam.service;
 
+import cn.hutool.http.HtmlUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.southcollege.exam.dto.request.PageRequest;
+import com.southcollege.exam.dto.response.AnnouncementResponse;
 import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.entity.Announcement;
 import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.mapper.AnnouncementMapper;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 公告服务
@@ -54,14 +59,7 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
      * 学生：仅查看已发布公告
      */
     public List<Announcement> listVisibleAnnouncements(Long userId, String userRole) {
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            return lambdaQuery()
-                    .orderByDesc(Announcement::getPublishedAt)
-                    .orderByDesc(Announcement::getId)
-                    .list();
-        }
-
-        if (RoleEnum.TEACHER.getCode().equals(userRole)) {
+        if (RoleEnum.TEACHER.getCode().equals(userRole) || RoleEnum.ADMIN.getCode().equals(userRole)) {
             return lambdaQuery()
                     .and(wrapper -> wrapper
                             .eq(Announcement::getStatus, "PUBLISHED")
@@ -86,10 +84,6 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
             return null;
         }
 
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            return announcement;
-        }
-
         boolean published = "PUBLISHED".equals(announcement.getStatus());
         boolean owner = announcement.getPublisherId() != null && announcement.getPublisherId().equals(userId);
 
@@ -103,7 +97,9 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
     /**
      * 创建公告前的预处理：设置发布者、默认状态和发布时间
      */
+    @Transactional
     public Announcement prepareForCreate(Announcement announcement, Long publisherId) {
+        sanitizeHtmlFields(announcement);
         announcement.setPublisherId(publisherId);
         if (announcement.getStatus() == null || announcement.getStatus().isBlank()) {
             announcement.setStatus("DRAFT");
@@ -116,6 +112,7 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
      * 更新公告前的预处理：权限校验、保留原创建者、处理发布时间
      */
     public Announcement prepareForUpdate(Long id, Announcement announcement, Long userId, String userRole) {
+        sanitizeHtmlFields(announcement);
         Announcement existing = getById(id);
         if (existing == null) {
             throw new BusinessException("公告不存在");
@@ -139,6 +136,15 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
         return existingPublishedAt != null ? existingPublishedAt : LocalDateTime.now();
     }
 
+    private void sanitizeHtmlFields(Announcement announcement) {
+        if (announcement.getTitle() != null) {
+            announcement.setTitle(HtmlUtil.filter(announcement.getTitle()));
+        }
+        if (announcement.getContent() != null) {
+            announcement.setContent(HtmlUtil.filter(announcement.getContent()));
+        }
+    }
+
     /**
      * 校验公告操作权限，管理员可操作所有，普通用户只能操作自己的公告
      */
@@ -147,7 +153,10 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
         if (announcement == null) {
             throw new BusinessException("公告不存在");
         }
-        if (!RoleEnum.ADMIN.getCode().equals(userRole) && !announcement.getPublisherId().equals(userId)) {
+        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
+            return;
+        }
+        if (!Objects.equals(announcement.getPublisherId(), userId)) {
             throw new BusinessException("无权操作该公告");
         }
     }
@@ -172,9 +181,7 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
         LambdaQueryWrapper<Announcement> wrapper = new LambdaQueryWrapper<>();
 
         // 角色数据隔离
-        if (RoleEnum.ADMIN.getCode().equals(currentUserRole)) {
-            // 管理员无限制
-        } else if (RoleEnum.TEACHER.getCode().equals(currentUserRole)) {
+        if (RoleEnum.TEACHER.getCode().equals(currentUserRole) || RoleEnum.ADMIN.getCode().equals(currentUserRole)) {
             wrapper.and(w -> w.eq(Announcement::getStatus, "PUBLISHED")
                     .or()
                     .eq(Announcement::getPublisherId, currentUserId));
@@ -225,5 +232,30 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
                 announcement.setPublisherName(displayName);
             }
         }
+    }
+
+    public AnnouncementResponse convertToResponse(Announcement entity) {
+        if (entity == null) return null;
+        AnnouncementResponse response = new AnnouncementResponse();
+        BeanUtils.copyProperties(entity, response);
+        return response;
+    }
+
+    public List<AnnouncementResponse> convertToResponses(List<Announcement> entities) {
+        if (entities == null || entities.isEmpty()) return List.of();
+        return entities.stream().map(this::convertToResponse).toList();
+    }
+
+    public PageResult<AnnouncementResponse> convertToPageResult(PageResult<Announcement> pageResult) {
+        if (pageResult == null) return PageResult.empty(1, 10);
+        PageResult<AnnouncementResponse> response = new PageResult<>();
+        response.setRecords(convertToResponses(pageResult.getRecords()));
+        response.setTotal(pageResult.getTotal());
+        response.setSize(pageResult.getSize());
+        response.setCurrent(pageResult.getCurrent());
+        response.setPages(pageResult.getPages());
+        response.setHasNext(pageResult.getHasNext());
+        response.setHasPrevious(pageResult.getHasPrevious());
+        return response;
     }
 }

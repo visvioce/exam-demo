@@ -67,9 +67,8 @@ public class ExamResultResponse {
      */
     private BigDecimal maxScore;
 
-    /**
-     * 评分状态
-     */
+    private BigDecimal passScore;
+
     private String gradingStatus;
 
     /**

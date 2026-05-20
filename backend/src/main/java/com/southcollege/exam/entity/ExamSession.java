@@ -3,6 +3,7 @@ package com.southcollege.exam.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.Version;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
@@ -66,10 +67,13 @@ public class ExamSession {
 
     /**
      * 主观题评分状态
-     * 可选值：PENDING(待评分) / GRADING(评分中) / COMPLETED(评分完成)
+     * 可选值：PENDING(待评分) / GRADING(评分中) / GRADED(已评分) / COMPLETED(评分完成)
      * @see com.southcollege.exam.enums.GradingStatusEnum
      */
     private String gradingStatus;
+
+    @TableLogic
+    private Integer deleted = 0;
 
     // ========== JSON 字段 ==========
 
@@ -90,6 +94,20 @@ public class ExamSession {
         private Long questionId;
         /** 学生填写的答案（格式因题型而异，参见数据格式规范） */
         private String answer;
+
+        /**
+         * 自定义反序列化，兼容前端传 JSON 数组（如多选答案 ["A","B"]）的情况
+         */
+        @com.fasterxml.jackson.annotation.JsonSetter("answer")
+        public void setAnswerFromJson(Object value) {
+            if (value instanceof java.util.List) {
+                this.answer = cn.hutool.json.JSONUtil.toJsonStr(value);
+            } else if (value != null) {
+                this.answer = value.toString();
+            } else {
+                this.answer = null;
+            }
+        }
         /** 是否正确（仅客观题有值，主观题为null） */
         private Boolean isCorrect;
         /** 该题得分 */

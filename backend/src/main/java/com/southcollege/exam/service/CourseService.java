@@ -6,14 +6,21 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.southcollege.exam.dto.request.PageRequest;
 import com.southcollege.exam.dto.response.PageResult;
+import com.southcollege.exam.dto.response.CourseResponse;
 import com.southcollege.exam.entity.Course;
 import com.southcollege.exam.entity.CourseMember;
 import com.southcollege.exam.entity.Exam;
+import com.southcollege.exam.entity.ExamSession;
+import com.southcollege.exam.enums.ExamSessionStatusEnum;
 import com.southcollege.exam.entity.User;
 import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.mapper.CourseMapper;
+import com.southcollege.exam.service.ExamSessionService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,17 +33,21 @@ import java.util.stream.Collectors;
  * 课程服务
  * 管理课程的增删改查、选课退课、成员管理和权限控制
  */
+@Slf4j
 @Service
 public class CourseService extends ServiceImpl<CourseMapper, Course> {
 
     private final CourseMemberService courseMemberService;
     private final UserService userService;
     private final ExamService examService;
+    private final ExamSessionService examSessionService;
 
-    public CourseService(CourseMemberService courseMemberService, UserService userService, @Lazy ExamService examService) {
+    public CourseService(CourseMemberService courseMemberService, UserService userService,
+                         @Lazy ExamService examService, @Lazy ExamSessionService examSessionService) {
         this.courseMemberService = courseMemberService;
         this.userService = userService;
         this.examService = examService;
+        this.examSessionService = examSessionService;
     }
 
     /**
@@ -73,18 +84,17 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
             throw new BusinessException("课程不存在");
         }
 
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            return course;
-        }
-
-        if (RoleEnum.TEACHER.getCode().equals(userRole)) {
-            if (!course.getTeacherId().equals(userId)) {
+        if (RoleEnum.TEACHER.getCode().equals(userRole) || RoleEnum.ADMIN.getCode().equals(userRole)) {
+            if (course.getTeacherId() == null || !course.getTeacherId().equals(userId)) {
                 throw new BusinessException("无权查看该课程");
             }
             return course;
         }
 
         if (RoleEnum.STUDENT.getCode().equals(userRole)) {
+            if (!"ACTIVE".equals(course.getStatus()) && !isCourseMember(id, userId)) {
+                throw new BusinessException("无权查看该课程");
+            }
             return course;
         }
 
@@ -163,7 +173,12 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
         member.setCourseId(courseId);
         member.setStudentId(studentId);
         member.setJoinedAt(LocalDateTime.now());
-        courseMemberService.save(member);
+        try {
+            courseMemberService.save(member);
+        } catch (DuplicateKeyException e) {
+            log.warn("选课重复键冲突，可能并发加入同课程: courseId=" + courseId + ", studentId=" + studentId);
+            throw new BusinessException("已加入该课程");
+        }
     }
 
     /**
@@ -181,6 +196,16 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
         if (members.isEmpty()) {
             throw new BusinessException("未加入该课程");
         }
+
+        // 检查该课程下是否有进行中的考试
+        List<Exam> courseExams = examService.getByCourseId(courseId);
+        for (Exam exam : courseExams) {
+            ExamSession session = examSessionService.getByExamIdAndStudentId(exam.getId(), studentId);
+            if (session != null && ExamSessionStatusEnum.IN_PROGRESS.getCode().equals(session.getStatus())) {
+                throw new BusinessException("您在该课程下有进行中的考试（" + exam.getTitle() + "），请先完成或提交后再退出课程");
+            }
+        }
+
         courseMemberService.removeById(members.get(0).getId());
     }
 
@@ -211,10 +236,7 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
         if (course == null) {
             throw new BusinessException("课程不存在");
         }
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            return getCourseMembers(courseId);
-        }
-        if (course.getTeacherId().equals(userId)) {
+        if (userId != null && userId.equals(course.getTeacherId())) {
             return getCourseMembers(courseId);
         }
         if (!isCourseMember(courseId, userId)) {
@@ -227,6 +249,9 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
      * 判断学生是否为课程成员
      */
     public boolean isCourseMember(Long courseId, Long studentId) {
+        if (courseId == null || studentId == null) {
+            return false;
+        }
         return courseMemberService.lambdaQuery()
                 .eq(CourseMember::getCourseId, courseId)
                 .eq(CourseMember::getStudentId, studentId)
@@ -241,10 +266,7 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
         if (course == null) {
             throw new BusinessException("课程不存在");
         }
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            return;
-        }
-        if (!course.getTeacherId().equals(userId)) {
+        if (course.getTeacherId() == null || !course.getTeacherId().equals(userId)) {
             throw new BusinessException("无权操作该课程");
         }
     }
@@ -273,19 +295,14 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
         return updateById(course);
     }
 
-    /**
-     * 检查课程是否可删除：有成员或有考试时不允许删除
-     */
-    public void checkCanDelete(Long courseId) {
-        List<CourseMember> members = courseMemberService.getByCourseId(courseId);
-        if (!members.isEmpty()) {
-            throw new BusinessException("该课程已有 " + members.size() + " 名学生加入，无法删除");
-        }
-
+    @Transactional
+    public void deleteCourse(Long courseId) {
+        courseMemberService.physicalDeleteByCourseId(courseId);
         List<Exam> exams = examService.getByCourseId(courseId);
-        if (!exams.isEmpty()) {
-            throw new BusinessException("该课程已有 " + exams.size() + " 场考试，无法删除");
+        for (Exam exam : exams) {
+            examService.deleteExam(exam.getId());
         }
+        removeById(courseId);
     }
 
     /**
@@ -306,13 +323,12 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
         Page<Course> page = new Page<>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<Course> wrapper = new LambdaQueryWrapper<>();
 
-        boolean isAdmin = RoleEnum.ADMIN.getCode().equals(currentUserRole);
-        if (!isAdmin && teacherId != null && !teacherId.equals(currentUserId)) {
+        if (teacherId != null && !teacherId.equals(currentUserId)) {
             return PageResult.empty(pageRequest.getCurrent(), pageRequest.getSize());
         }
         if (teacherId != null) {
             wrapper.eq(Course::getTeacherId, teacherId);
-        } else if (!isAdmin) {
+        } else {
             wrapper.eq(Course::getTeacherId, currentUserId);
         }
 
@@ -392,5 +408,38 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
             }
             default -> wrapper.orderByDesc(Course::getId);
         }
+    }
+
+    public CourseResponse convertToResponse(Course course) {
+        if (course == null) {
+            return null;
+        }
+        CourseResponse response = new CourseResponse();
+        BeanUtils.copyProperties(course, response);
+        return response;
+    }
+
+    public List<CourseResponse> convertToResponses(List<Course> courses) {
+        if (courses == null || courses.isEmpty()) {
+            return List.of();
+        }
+        return courses.stream()
+                .map(this::convertToResponse)
+                .toList();
+    }
+
+    public PageResult<CourseResponse> convertToPageResult(PageResult<Course> pageResult) {
+        if (pageResult == null) {
+            return PageResult.empty(1, 10);
+        }
+        PageResult<CourseResponse> response = new PageResult<>();
+        response.setRecords(convertToResponses(pageResult.getRecords()));
+        response.setTotal(pageResult.getTotal());
+        response.setSize(pageResult.getSize());
+        response.setCurrent(pageResult.getCurrent());
+        response.setPages(pageResult.getPages());
+        response.setHasNext(pageResult.getHasNext());
+        response.setHasPrevious(pageResult.getHasPrevious());
+        return response;
     }
 }

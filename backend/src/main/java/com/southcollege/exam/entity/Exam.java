@@ -3,24 +3,29 @@ package com.southcollege.exam.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.TableLogic;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 考试实体
  * <p>
- * 表示一场完整的考试，包含考试基本信息、关联的试卷、时间设置、状态管理等。
+ * 表示一场完整的考试，包含考试基本信息、试卷快照、时间设置、状态管理等。
+ * 考试创建时从选定试卷+题目表完整复制题目内容（快照），之后与试卷/题库完全解耦，独立存在。
  * </p>
  *
  * @see com.southcollege.exam.service.ExamService
- * @see com.southcollege.exam.entity.Paper
  */
 @Data
-@TableName("exams")
+@TableName(value = "exams", autoResultMap = true)
 public class Exam {
 
     @TableId(type = IdType.AUTO)
@@ -34,9 +39,6 @@ public class Exam {
 
     /** 关联的课程ID（{@link Course#id}） */
     private Long courseId;
-
-    /** 关联的试卷ID（{@link Paper#id}） */
-    private Long paperId;
 
     /** 创建该考试的教师ID（{@link User#id}） */
     private Long teacherId;
@@ -58,7 +60,7 @@ public class Exam {
     /** 考试时长（分钟），null表示不限制时长，以结束时间为准 */
     private Integer duration;
 
-    /** 试卷总分（由试卷题目分值汇总） */
+    /** 试卷总分（由各题分值汇总） */
     private BigDecimal totalScore;
 
     /** 及格分数 */
@@ -70,12 +72,18 @@ public class Exam {
      */
     private String status;
 
+    /**
+     * 考试试卷快照（创建考试时写入，之后与试卷/题库完全解耦）
+     * <p>包含题目列表（items）和题型分值总标注（typeScores），对应数据库 exam_paper 列</p>
+     */
+    @TableField(value = "exam_paper", typeHandler = JacksonTypeHandler.class)
+    private ExamPaperData examPaper;
+
     /** 创建时间 */
     private LocalDateTime createdAt;
 
-    /** 逻辑删除标记（0=未删除, 1=已删除） */
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
     /**
      * 当前学生对该考试的状态（非数据库字段，仅用于前端展示）
@@ -84,4 +92,58 @@ public class Exam {
      */
     @TableField(exist = false)
     private String studentExamStatus;
+
+    /**
+     * 考试试卷数据包装类
+     * <p>JSON 结构：{ "items": [...], "typeScores": { "SINGLE_CHOICE": 2, ... } }</p>
+     */
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class ExamPaperData {
+        /** 题目列表 */
+        private List<ExamQuestion> items;
+        /** 题型分值总标注，key为题型代码，value为每题分值 */
+        private Map<String, BigDecimal> typeScores;
+    }
+
+    /**
+     * 考试题目内部类
+     * <p>记录一道题目在考试中的完整信息（创建时从题目表快照复制）</p>
+     */
+    @Data
+    public static class ExamQuestion {
+        private Long questionId;
+
+        private String content;
+
+        private String type;
+
+        private String difficulty;
+
+        private List<Option> options;
+
+        private Object correctAnswer;
+
+        private String explanation;
+
+        private Integer blankCount;
+
+        private List<ScoringCriterion> scoringCriteria;
+    }
+
+    /**
+     * 选项内部类
+     */
+    @Data
+    public static class Option {
+        private String id;
+        private String text;
+    }
+
+    @Data
+    public static class ScoringCriterion {
+        private String point;
+        private BigDecimal score;
+    }
 }

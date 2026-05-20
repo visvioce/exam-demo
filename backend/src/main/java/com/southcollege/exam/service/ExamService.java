@@ -3,14 +3,19 @@ package com.southcollege.exam.service;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.southcollege.exam.dto.request.ExamCreateRequest;
 import com.southcollege.exam.dto.request.ExamUpdateRequest;
 import com.southcollege.exam.dto.request.GradeSubjectiveRequest;
 import com.southcollege.exam.dto.request.PageRequest;
+import com.southcollege.exam.dto.response.ExamResponse;
 import com.southcollege.exam.dto.response.ExamResultResponse;
+import com.southcollege.exam.dto.response.ExamSessionResponse;
 import com.southcollege.exam.dto.response.PageResult;
+import com.southcollege.exam.dto.response.PaperResponse;
 import com.southcollege.exam.dto.response.QuestionForExamResponse;
+import com.southcollege.exam.dto.response.QuestionResponse;
 import com.southcollege.exam.entity.*;
 import com.southcollege.exam.enums.ExamSessionStatusEnum;
 import com.southcollege.exam.enums.ExamStatusEnum;
@@ -24,17 +29,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -63,11 +65,11 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
     private final UserService userService;
 
     public List<Exam> getByCourseId(Long courseId) {
-        return baseMapper.selectByCourseId(courseId);
+        return lambdaQuery().eq(Exam::getCourseId, courseId).list();
     }
 
     public List<Exam> getByTeacherId(Long teacherId) {
-        List<Exam> exams = baseMapper.selectByTeacherId(teacherId);
+        List<Exam> exams = lambdaQuery().eq(Exam::getTeacherId, teacherId).list();
         applyCurrentStatuses(exams);
         fillExamDisplayFields(exams);
         return exams;
@@ -92,10 +94,6 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
 
     /**
      * 根据ID和用户权限查询考试详情
-     * <p>
-     * 管理员：任意查看
-     * 教师：只能查看自己创建的考试
-     * 学生：只能查看已发布、进行中或已结束的考试，且必须是课程成员
      */
     public Exam getByIdWithPermission(Long id, Long userId, String userRole) {
         Exam exam = getByIdWithDisplayFields(id);
@@ -103,11 +101,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             throw new BusinessException("考试不存在");
         }
 
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            return exam;
-        }
-
-        if (RoleEnum.TEACHER.getCode().equals(userRole)) {
+        if (RoleEnum.TEACHER.getCode().equals(userRole) || RoleEnum.ADMIN.getCode().equals(userRole)) {
             if (exam.getTeacherId() == null || !exam.getTeacherId().equals(userId)) {
                 throw new BusinessException("无权查看该考试");
             }
@@ -123,6 +117,9 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             if (!courseService.isCourseMember(exam.getCourseId(), userId)) {
                 throw new BusinessException("请先加入课程");
             }
+            if (exam.getExamPaper() != null && exam.getExamPaper().getItems() != null) {
+                exam.getExamPaper().getItems().forEach(item -> item.setCorrectAnswer(null));
+            }
             return exam;
         }
 
@@ -130,50 +127,120 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
     }
 
     /**
-     * 创建考试：校验试卷有效性，从试卷获取题目和分值，设置初始状态为草稿
-     *
-     * @param examRequest 考试创建请求
-     * @param teacherId   创建教师ID
-     * @return 是否成功
+     * 创建考试：选定试卷，将试卷中所有题目快照复制到 exam.examPaper，之后与试卷完全解耦
      */
     @Transactional
     public boolean createExam(ExamCreateRequest examRequest, Long teacherId) {
         if (examRequest.getPaperId() == null) {
-            throw new BusinessException("试卷ID不能为空");
+            throw new BusinessException("请选择试卷");
         }
 
         Paper paper = paperService.getById(examRequest.getPaperId());
         if (paper == null) {
             throw new BusinessException("试卷不存在");
         }
+        if (!paper.getTeacherId().equals(teacherId)) {
+            throw new BusinessException("无权使用该试卷");
+        }
+
+        List<Long> questionIds = paper.getQuestionIds();
+        if (questionIds == null || questionIds.isEmpty()) {
+            throw new BusinessException("试卷中没有题目");
+        }
+
+        List<Question> questions = questionService.listByIds(questionIds);
+        if (questions.isEmpty()) {
+            throw new BusinessException("试卷中的题目均已失效，请重新组卷");
+        }
+
+        Map<Long, Question> questionMap = questions.stream()
+                .collect(Collectors.toMap(Question::getId, q -> q));
+
+        Map<String, BigDecimal> typeScoreMap = examRequest.getQuestionScores() != null
+                ? examRequest.getQuestionScores()
+                : Collections.emptyMap();
+
+        BigDecimal totalScore = BigDecimal.ZERO;
+        List<Exam.ExamQuestion> examQuestions = new ArrayList<>();
+        for (Long questionId : questionIds) {
+            Question question = questionMap.get(questionId);
+            if (question == null) {
+                continue;
+            }
+
+            BigDecimal score = typeScoreMap.getOrDefault(question.getType(), BigDecimal.ZERO);
+            if ("FILL_BLANK".equals(question.getType())
+                    && question.getCorrectAnswer() instanceof java.util.List<?> list && !list.isEmpty()) {
+                score = score.multiply(BigDecimal.valueOf(list.size()));
+            }
+            totalScore = totalScore.add(score);
+
+            Exam.ExamQuestion examQuestion = new Exam.ExamQuestion();
+            examQuestion.setQuestionId(question.getId());
+            examQuestion.setContent(question.getContent());
+            examQuestion.setType(question.getType());
+            examQuestion.setDifficulty(question.getDifficulty());
+            examQuestion.setCorrectAnswer(question.getCorrectAnswer());
+            examQuestion.setExplanation(question.getExplanation());
+
+            if ("FILL_BLANK".equals(question.getType())
+                    && question.getCorrectAnswer() instanceof java.util.List<?> list) {
+                examQuestion.setBlankCount(list.size());
+            }
+
+            if (question.getScoringCriteria() != null && !question.getScoringCriteria().isEmpty()) {
+                examQuestion.setScoringCriteria(question.getScoringCriteria().stream().map(c -> {
+                    Exam.ScoringCriterion sc = new Exam.ScoringCriterion();
+                    sc.setPoint(c.getPoint());
+                    sc.setScore(c.getScore());
+                    return sc;
+                }).toList());
+            }
+
+            if (question.getOptions() != null) {
+                examQuestion.setOptions(question.getOptions().stream().map(opt -> {
+                    Exam.Option examOpt = new Exam.Option();
+                    examOpt.setId(opt.getId());
+                    examOpt.setText(opt.getText());
+                    return examOpt;
+                }).toList());
+            }
+
+            examQuestions.add(examQuestion);
+        }
+
+        Course course = courseService.getById(examRequest.getCourseId());
+        if (course == null) {
+            throw new BusinessException("关联课程不存在");
+        }
+        if (!course.getTeacherId().equals(teacherId)) {
+            throw new BusinessException("无权在该课程下创建考试");
+        }
 
         Exam exam = new Exam();
-        BeanUtils.copyProperties(examRequest, exam);
+        exam.setTitle(examRequest.getTitle());
+        exam.setDescription(examRequest.getDescription());
+        exam.setCourseId(examRequest.getCourseId());
         exam.setTeacherId(teacherId);
-        exam.setTotalScore(paper.getTotalScore());
+        exam.setStartedAt(examRequest.getStartedAt());
+        exam.setEndedAt(examRequest.getEndedAt());
+        exam.setDuration(examRequest.getDuration());
+        exam.setPassScore(examRequest.getPassScore());
+        if (examRequest.getPassScore() != null && totalScore.compareTo(examRequest.getPassScore()) < 0) {
+            throw new BusinessException("及格分不能大于总分");
+        }
+        exam.setExamPaper(new Exam.ExamPaperData(examQuestions, typeScoreMap));
+        exam.setTotalScore(totalScore);
         exam.setStatus(ExamStatusEnum.DRAFT.getCode());
         return save(exam);
     }
 
     /**
-     * 更新考试：
-     * 草稿状态可修改全部字段（包括试卷、课程等），会自动同步总分；
-     * 非草稿状态锁定关键字段（试卷、课程、时间、分值），防止发布后被篡改
-     *
-     * @param id           考试ID
-     * @param examRequest  考试更新请求
-     * @param userId       操作者ID
-     * @param userRole     操作者角色
-     * @return 是否成功
+     * 更新考试：草稿状态可修改全部字段，非草稿状态锁定关键字段
      */
     @Transactional
     public boolean updateExam(Long id, ExamUpdateRequest examRequest, Long userId, String userRole) {
-        checkOwnership(id, userId, userRole);
-
-        Exam originalExam = getById(id);
-        if (originalExam == null) {
-            throw new BusinessException("考试不存在");
-        }
+        Exam originalExam = checkOwnership(id, userId, userRole);
 
         Exam exam = new Exam();
         BeanUtils.copyProperties(examRequest, exam);
@@ -181,48 +248,73 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         exam.setTeacherId(originalExam.getTeacherId());
         exam.setStatus(originalExam.getStatus());
 
-        if (!ExamStatusEnum.DRAFT.getCode().equals(originalExam.getStatus())) {
-            exam.setPaperId(originalExam.getPaperId());
+        boolean isDraft = ExamStatusEnum.DRAFT.getCode().equals(originalExam.getStatus());
+
+        if (!isDraft) {
             exam.setCourseId(originalExam.getCourseId());
             exam.setStartedAt(originalExam.getStartedAt());
             exam.setEndedAt(originalExam.getEndedAt());
             exam.setDuration(originalExam.getDuration());
             exam.setTotalScore(originalExam.getTotalScore());
-        } else {
-            if (examRequest.getPaperId() != null) {
-                Paper paper = paperService.getById(examRequest.getPaperId());
-                if (paper == null) {
-                    throw new BusinessException("试卷不存在");
+        }
+
+        if (isDraft && examRequest.getQuestionScores() != null && !examRequest.getQuestionScores().isEmpty()) {
+            List<Exam.ExamQuestion> questions = originalExam.getExamPaper().getItems();
+            if (questions != null && !questions.isEmpty()) {
+                BigDecimal newTotalScore = BigDecimal.ZERO;
+                for (Exam.ExamQuestion eq : questions) {
+                    newTotalScore = newTotalScore.add(computeQuestionScore(eq, examRequest.getQuestionScores()));
                 }
-                exam.setTotalScore(paper.getTotalScore());
+                exam.setExamPaper(new Exam.ExamPaperData(questions, examRequest.getQuestionScores()));
+                exam.setTotalScore(newTotalScore);
             }
         }
 
         return updateById(exam);
     }
 
-    public List<Exam> getByPaperId(Long paperId) {
-        return lambdaQuery()
-                .eq(Exam::getPaperId, paperId)
-                .list();
-    }
-
     public List<Exam> getByStatus(String status) {
-        return baseMapper.selectByStatus(status);
+        return lambdaQuery().eq(Exam::getStatus, status).list();
     }
 
-    public List<Exam> getPublishedExams(Long studentId) {
-        List<Exam> exams = lambdaQuery()
-                .notIn(Exam::getStatus, ExamStatusEnum.DRAFT.getCode(), ExamStatusEnum.CANCELLED.getCode())
-                .ge(Exam::getEndedAt, LocalDateTime.now())
-                .list();
-        applyCurrentStatuses(exams);
-        exams = exams.stream()
+    public PageResult<Exam> getPublishedExams(PageRequest pageRequest, Long studentId) {
+        List<Course> myCourses = courseService.getMyCourses(studentId);
+        List<Long> courseIds = myCourses.stream()
+                .map(Course::getId)
+                .toList();
+        if (courseIds.isEmpty()) {
+            return PageResult.empty(pageRequest.getCurrent(), pageRequest.getSize());
+        }
+
+        Page<Exam> page = new Page<>(pageRequest.getCurrent(), pageRequest.getSize());
+        LambdaQueryWrapper<Exam> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(Exam::getCourseId, courseIds)
+                .notIn(Exam::getStatus, ExamStatusEnum.DRAFT.getCode(), ExamStatusEnum.ENDED.getCode())
+                .ge(Exam::getEndedAt, LocalDateTime.now());
+        applyDbSorting(wrapper, pageRequest);
+
+        Page<Exam> dbPage = page(page, wrapper);
+        List<Exam> records = dbPage.getRecords();
+        applyCurrentStatuses(records);
+        records = records.stream()
                 .filter(exam -> ExamStatusEnum.PUBLISHED.getCode().equals(exam.getStatus())
                         || ExamStatusEnum.STARTED.getCode().equals(exam.getStatus()))
                 .toList();
-        fillExamDisplayFields(exams);
-        return exams;
+        fillExamDisplayFields(records);
+
+        long filteredTotal = records.size() + (long) (dbPage.getCurrent() - 1) * dbPage.getSize();
+        long adjustedTotal = Math.min(filteredTotal, dbPage.getTotal());
+        long adjustedPages = adjustedTotal == 0 ? 0 : (adjustedTotal + dbPage.getSize() - 1) / dbPage.getSize();
+
+        PageResult<Exam> result = new PageResult<>();
+        result.setCurrent((int) dbPage.getCurrent());
+        result.setSize((int) dbPage.getSize());
+        result.setTotal(adjustedTotal);
+        result.setPages(adjustedPages);
+        result.setRecords(records);
+        result.setHasNext(dbPage.getCurrent() < adjustedPages);
+        result.setHasPrevious(dbPage.getCurrent() > 1);
+        return result;
     }
 
     public List<QuestionForExamResponse> getExamQuestions(Long examId, Long studentId) {
@@ -266,40 +358,55 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             }
         }
 
-        Paper paper = paperService.getById(exam.getPaperId());
-        if (paper == null || paper.getQuestions() == null) {
-            return List.of();
+        if (exam.getExamPaper() == null || exam.getExamPaper().getItems() == null || exam.getExamPaper().getItems().isEmpty()) {
+            throw new BusinessException("考试题目不存在");
         }
 
-        List<Long> questionIds = paper.getQuestions().stream()
-                .map(Paper.PaperQuestion::getQuestionId)
-                .toList();
-
-        List<Question> questions = questionService.listByIds(questionIds);
-        return questions.stream()
-                .map(QuestionForExamResponse::from)
+        return exam.getExamPaper().getItems().stream()
+                .map(q -> convertExamQuestionToResponse(q, exam.getExamPaper().getTypeScores()))
                 .toList();
     }
 
-    public Paper getExamPaper(Long examId, Long userId, String userRole) {
-        Exam exam = checkReviewPermission(examId, userId, userRole);
-        Paper paper = paperService.getById(exam.getPaperId());
-        if (paper == null) {
-            throw new BusinessException("试卷不存在");
+    /**
+     * 将考试题目转换为响应对象（学生端，隐藏正确答案）
+     */
+    private QuestionForExamResponse convertExamQuestionToResponse(
+            Exam.ExamQuestion examQuestion, Map<String, BigDecimal> typeScores) {
+        QuestionForExamResponse response = new QuestionForExamResponse();
+        response.setId(examQuestion.getQuestionId());
+        response.setContent(examQuestion.getContent());
+        response.setType(examQuestion.getType());
+        response.setDifficulty(examQuestion.getDifficulty());
+
+        BigDecimal baseScore = typeScores != null ? typeScores.getOrDefault(examQuestion.getType(), BigDecimal.ZERO) : BigDecimal.ZERO;
+        if ("FILL_BLANK".equals(examQuestion.getType()) && examQuestion.getBlankCount() != null && examQuestion.getBlankCount() > 0) {
+            response.setScore(baseScore.multiply(BigDecimal.valueOf(examQuestion.getBlankCount())));
+        } else {
+            response.setScore(baseScore);
         }
-        return paper;
+
+        if (examQuestion.getOptions() != null) {
+            response.setOptions(examQuestion.getOptions().stream().map(opt -> {
+                QuestionForExamResponse.Option option = new QuestionForExamResponse.Option();
+                option.setId(opt.getId());
+                option.setText(opt.getText());
+                return option;
+            }).toList());
+        }
+
+        if (examQuestion.getBlankCount() != null) {
+            response.setBlankCount(examQuestion.getBlankCount());
+        }
+
+        return response;
     }
 
-    public List<Question> getReviewQuestions(Long examId, Long userId, String userRole) {
+    /**
+     * 获取考试回顾题目（含正确答案，考试结束后）
+     */
+    public List<Exam.ExamQuestion> getReviewQuestions(Long examId, Long userId, String userRole) {
         Exam exam = checkReviewPermission(examId, userId, userRole);
-        Paper paper = paperService.getById(exam.getPaperId());
-        if (paper == null || paper.getQuestions() == null) {
-            return List.of();
-        }
-        List<Long> questionIds = paper.getQuestions().stream()
-                .map(Paper.PaperQuestion::getQuestionId)
-                .toList();
-        return questionService.listByIds(questionIds);
+        return exam.getExamPaper() != null && exam.getExamPaper().getItems() != null ? exam.getExamPaper().getItems() : List.of();
     }
 
     private Exam checkReviewPermission(Long examId, Long userId, String userRole) {
@@ -309,12 +416,8 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         }
         applyCurrentStatus(exam);
 
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            return exam;
-        }
-
-        if (RoleEnum.TEACHER.getCode().equals(userRole)) {
-            if (!exam.getTeacherId().equals(userId)) {
+        if (RoleEnum.TEACHER.getCode().equals(userRole) || RoleEnum.ADMIN.getCode().equals(userRole)) {
+            if (exam.getTeacherId() == null || !exam.getTeacherId().equals(userId)) {
                 throw new BusinessException("无权查看该考试");
             }
             return exam;
@@ -329,8 +432,8 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
                 throw new BusinessException("您尚未参加该考试");
             }
             boolean canView = ExamStatusEnum.ENDED.getCode().equals(exam.getStatus())
-                    || ExamSessionStatusEnum.SUBMITTED.getCode().equals(session.getStatus())
-                    || ExamSessionStatusEnum.GRADED.getCode().equals(session.getStatus());
+                    && (ExamSessionStatusEnum.SUBMITTED.getCode().equals(session.getStatus())
+                        || ExamSessionStatusEnum.GRADED.getCode().equals(session.getStatus()));
             if (!canView) {
                 throw new BusinessException("考试尚未结束，暂时无法查看答案");
             }
@@ -340,24 +443,29 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         throw new BusinessException("无权查看该考试");
     }
 
-    public List<Exam> getMyExams(Long studentId) {
+    public PageResult<Exam> getMyExams(PageRequest pageRequest, Long studentId) {
         List<Course> myCourses = courseService.getMyCourses(studentId);
         List<Long> courseIds = myCourses.stream()
                 .map(Course::getId)
                 .toList();
         if (courseIds.isEmpty()) {
-            return List.of();
+            return PageResult.empty(pageRequest.getCurrent(), pageRequest.getSize());
         }
-        List<Exam> exams = lambdaQuery()
-                .in(Exam::getCourseId, courseIds)
-                .ne(Exam::getStatus, ExamStatusEnum.DRAFT.getCode())
-                .list();
-        applyCurrentStatuses(exams);
 
-        List<Long> examIds = exams.stream().map(Exam::getId).toList();
+        Page<Exam> page = new Page<>(pageRequest.getCurrent(), pageRequest.getSize());
+        LambdaQueryWrapper<Exam> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(Exam::getCourseId, courseIds)
+                .ne(Exam::getStatus, ExamStatusEnum.DRAFT.getCode());
+        applyDbSorting(wrapper, pageRequest);
+
+        Page<Exam> dbPage = page(page, wrapper);
+        List<Exam> records = dbPage.getRecords();
+        applyCurrentStatuses(records);
+
+        List<Long> examIds = records.stream().map(Exam::getId).toList();
         Map<Long, ExamSession> sessionMap = examSessionService.getByExamIdsAndStudentId(examIds, studentId);
 
-        for (Exam exam : exams) {
+        for (Exam exam : records) {
             ExamSession session = sessionMap.get(exam.getId());
             if (session != null) {
                 exam.setStudentExamStatus(session.getStatus());
@@ -366,8 +474,17 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             }
         }
 
-        fillExamDisplayFields(exams);
-        return exams;
+        fillExamDisplayFields(records);
+
+        PageResult<Exam> result = new PageResult<>();
+        result.setCurrent((int) dbPage.getCurrent());
+        result.setSize((int) dbPage.getSize());
+        result.setTotal(dbPage.getTotal());
+        result.setPages(dbPage.getPages());
+        result.setRecords(records);
+        result.setHasNext(dbPage.hasNext());
+        result.setHasPrevious(dbPage.hasPrevious());
+        return result;
     }
 
     @Transactional
@@ -417,7 +534,10 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         } catch (DuplicateKeyException e) {
             existing = examSessionService.getByExamIdAndStudentId(examId, studentId);
             if (existing != null) {
-                return existing;
+                if (ExamSessionStatusEnum.IN_PROGRESS.getCode().equals(existing.getStatus())) {
+                    return existing;
+                }
+                throw new BusinessException("已参加过该考试");
             }
             throw new BusinessException("创建考试记录失败");
         }
@@ -425,6 +545,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         return session;
     }
 
+    @Transactional
     public void autoSaveExam(Long examId, Long studentId, List<ExamSession.Answer> answers) {
         Exam exam = getById(examId);
         if (exam == null) {
@@ -446,19 +567,37 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             throw new BusinessException("未开始该考试");
         }
         if (!ExamSessionStatusEnum.IN_PROGRESS.getCode().equals(session.getStatus())) {
-            throw new BusinessException("当前考试状态不允许保存");
+            return;
+        }
+        if (session.getSubmittedAt() != null) {
+            return;
         }
         if (exam.getDuration() != null) {
             LocalDateTime durationDeadline = sessionDeadline(session, exam.getDuration());
             if (LocalDateTime.now().isAfter(durationDeadline)) {
-                throw new BusinessException("考试已超时，无法继续保存");
+                return;
+            }
+        }
+
+        Set<Long> validQuestionIds = getQuestionIdsFromExam(exam);
+        if (!validQuestionIds.isEmpty() && answers != null) {
+            int beforeFilter = answers.size();
+            answers = answers.stream()
+                    .filter(answer -> answer != null && answer.getQuestionId() != null
+                            && validQuestionIds.contains(answer.getQuestionId()))
+                    .collect(Collectors.toList());
+            if (answers.size() < beforeFilter) {
+                log.warn("自动保存时过滤掉无效题目: examId={}, studentId={}, 原始答案数={}, 有效答案数={}",
+                        examId, studentId, beforeFilter, answers.size());
             }
         }
 
         session.setAnswers(answers);
+
         try {
             examSessionService.updateById(session);
         } catch (OptimisticLockingFailureException e) {
+            log.warn("自动保存遇到乐观锁冲突，忽略本次保存: examId={}, studentId={}", examId, studentId);
         }
     }
 
@@ -478,6 +617,9 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         if (session == null) {
             throw new BusinessException("未开始该考试");
         }
+        if (session.getSubmittedAt() != null) {
+            throw new BusinessException("该考试已提交，请勿重复提交");
+        }
         if (!ExamSessionStatusEnum.IN_PROGRESS.getCode().equals(session.getStatus())) {
             throw new BusinessException("当前考试状态不允许提交");
         }
@@ -496,49 +638,43 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             }
         }
 
-        validateAnswers(answers);
         answers = normalizeSubmittedAnswers(answers);
+
+        Set<Long> examQuestionIds = getQuestionIdsFromExam(exam);
+        validateAnswerQuestionIds(answers, examQuestionIds);
+
+        Map<Long, BigDecimal> scoreMap = getScoreMapFromExam(exam);
 
         BigDecimal objectiveScore = BigDecimal.ZERO;
         boolean hasSubjective = false;
-        Paper paper = paperService.getById(exam.getPaperId());
-        Set<Long> paperQuestionIds = getPaperQuestionIdSet(paper);
-        validateAnswerQuestionIds(answers, paperQuestionIds);
 
-        List<Long> questionIds = answers.stream()
-                .map(ExamSession.Answer::getQuestionId)
-                .distinct()
-                .collect(Collectors.toList());
-        Map<Long, Question> questionMap = questionService.listByIds(questionIds).stream()
-                .collect(Collectors.toMap(Question::getId, q -> q));
+        for (ExamSession.Answer answer : answers) {
+            Exam.ExamQuestion examQuestion = findExamQuestion(exam, answer.getQuestionId());
+            if (examQuestion != null) {
+                answer.setQuestionType(examQuestion.getType());
 
-        if (paper != null && paper.getQuestions() != null) {
-            for (ExamSession.Answer answer : answers) {
-                Question question = questionMap.get(answer.getQuestionId());
-                if (question != null) {
-                    answer.setQuestionType(question.getType());
+                if (OBJECTIVE_TYPES.contains(examQuestion.getType())) {
+                    boolean isCorrect = checkAnswerByExamQuestion(examQuestion, answer.getAnswer());
+                    answer.setIsCorrect(isCorrect);
+                    answer.setGradingStatus(GradingStatusEnum.GRADED.getCode());
 
-                    if (OBJECTIVE_TYPES.contains(question.getType())) {
-                        boolean isCorrect = checkAnswer(question, answer.getAnswer());
-                        answer.setIsCorrect(isCorrect);
-                        answer.setGradingStatus(GradingStatusEnum.GRADED.getCode());
-
-                        if (isCorrect) {
-                            BigDecimal score = getQuestionScore(paper, answer.getQuestionId());
-                            answer.setScore(score);
-                            objectiveScore = objectiveScore.add(score);
-                        } else {
-                            answer.setScore(BigDecimal.ZERO);
-                        }
-                    } else if (SUBJECTIVE_TYPES.contains(question.getType())) {
-                        hasSubjective = true;
-                        answer.setIsCorrect(null);
-                        answer.setScore(null);
-                        answer.setGradingStatus(GradingStatusEnum.PENDING.getCode());
+                    if (isCorrect) {
+                        BigDecimal score = scoreMap.getOrDefault(answer.getQuestionId(), BigDecimal.ZERO);
+                        answer.setScore(score);
+                        objectiveScore = objectiveScore.add(score);
+                    } else {
+                        answer.setScore(BigDecimal.ZERO);
                     }
+                } else if (SUBJECTIVE_TYPES.contains(examQuestion.getType())) {
+                    hasSubjective = true;
+                    answer.setIsCorrect(null);
+                    answer.setScore(null);
+                    answer.setGradingStatus(GradingStatusEnum.PENDING.getCode());
                 }
             }
         }
+
+        validateAnswers(answers);
 
         session.setAnswers(answers);
         session.setScore(objectiveScore);
@@ -553,38 +689,38 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         }
     }
 
-    private boolean checkAnswer(Question question, String answer) {
-        if (question.getCorrectAnswer() == null || answer == null) {
+    private boolean checkAnswerByExamQuestion(Exam.ExamQuestion examQuestion, String answer) {
+        if (examQuestion.getCorrectAnswer() == null || answer == null) {
             return false;
         }
 
-        if (QuestionTypeEnum.MULTIPLE_CHOICE.getCode().equals(question.getType())) {
+        if (QuestionTypeEnum.MULTIPLE_CHOICE.getCode().equals(examQuestion.getType())) {
             try {
                 List<String> studentAnswers = JSONUtil.toList(answer, String.class);
-                List<String> correctAnswers = JSONUtil.toList(question.getCorrectAnswer().toString(), String.class);
+                List<String> correctAnswers = JSONUtil.toList(examQuestion.getCorrectAnswer().toString(), String.class);
 
-                studentAnswers.sort(String::compareTo);
-                correctAnswers.sort(String::compareTo);
+                studentAnswers = studentAnswers.stream().map(String::trim).sorted().collect(Collectors.toList());
+                correctAnswers = correctAnswers.stream().map(String::trim).sorted().collect(Collectors.toList());
 
                 return studentAnswers.equals(correctAnswers);
             } catch (Exception e) {
-                return question.getCorrectAnswer().toString().equalsIgnoreCase(answer.trim());
+                return examQuestion.getCorrectAnswer().toString().equalsIgnoreCase(answer.trim());
             }
         }
 
-        if (QuestionTypeEnum.TRUE_FALSE.getCode().equals(question.getType())) {
+        if (QuestionTypeEnum.TRUE_FALSE.getCode().equals(examQuestion.getType())) {
             String normalizedStudent = normalizeTrueFalseAnswer(answer);
-            String normalizedCorrect = normalizeTrueFalseAnswer(question.getCorrectAnswer().toString());
+            String normalizedCorrect = normalizeTrueFalseAnswer(examQuestion.getCorrectAnswer().toString());
             if (normalizedStudent != null && normalizedCorrect != null) {
                 return normalizedStudent.equals(normalizedCorrect);
             }
         }
 
-        if (QuestionTypeEnum.FILL_BLANK.getCode().equals(question.getType())) {
-            return isFillBlankAnswerCorrect(answer, question.getCorrectAnswer());
+        if (QuestionTypeEnum.FILL_BLANK.getCode().equals(examQuestion.getType())) {
+            return isFillBlankAnswerCorrect(answer, examQuestion.getCorrectAnswer());
         }
 
-        return question.getCorrectAnswer().toString().trim().equalsIgnoreCase(answer.trim());
+        return examQuestion.getCorrectAnswer().toString().trim().equalsIgnoreCase(answer.trim());
     }
 
     private boolean isFillBlankAnswerCorrect(String studentAnswer, Object correctAnswer) {
@@ -632,6 +768,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
                 return arr == null ? List.of() : arr.stream().filter(StringUtils::isNotBlank).toList();
             }
         } catch (Exception ignored) {
+            log.warn("JSON 解析候选答案失败，回退到字符串分割: {}", value);
         }
 
         if (value.contains("\n") || value.contains(",") || value.contains("，")
@@ -660,7 +797,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
     private boolean isNumericEquivalent(String a, String b) {
         try {
             return new BigDecimal(a).compareTo(new BigDecimal(b)) == 0;
-        } catch (Exception ignored) {
+        } catch (Exception e) {
             return false;
         }
     }
@@ -679,31 +816,9 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         return null;
     }
 
-    private BigDecimal getQuestionScore(Paper paper, Long questionId) {
-        if (paper.getQuestions() == null) {
-            return BigDecimal.ZERO;
-        }
-        return paper.getQuestions().stream()
-                .filter(q -> q.getQuestionId().equals(questionId))
-                .findFirst()
-                .map(Paper.PaperQuestion::getScore)
-                .orElse(BigDecimal.ZERO);
-    }
-
-    private String getQuestionType(Paper paper, Long questionId) {
-        if (paper == null || questionId == null) {
-            return null;
-        }
-        Question question = questionService.getById(questionId);
-        return question == null ? null : question.getType();
-    }
-
     @Transactional
-    public void publishExam(Long examId) {
-        Exam exam = getById(examId);
-        if (exam == null) {
-            throw new BusinessException("考试不存在");
-        }
+    public void publishExam(Long examId, Long userId, String userRole) {
+        Exam exam = checkOwnership(examId, userId, userRole);
 
         if (exam.getStatus() == null) {
             exam.setStatus(ExamStatusEnum.DRAFT.getCode());
@@ -719,40 +834,75 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         if (!exam.getStartedAt().isBefore(exam.getEndedAt())) {
             throw new BusinessException("考试开始时间必须早于结束时间");
         }
+        if (!exam.getStartedAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException("考试开始时间已过，无法发布，请修改开始时间后重试");
+        }
+        if (exam.getDuration() == null || exam.getDuration() <= 0) {
+            throw new BusinessException("请设置有效的考试时长（分钟）");
+        }
+        long windowMinutes = java.time.Duration.between(exam.getStartedAt(), exam.getEndedAt()).toMinutes();
+        if (exam.getDuration() > windowMinutes) {
+            throw new BusinessException("考试时长不能超过考试时间窗口");
+        }
+        if (exam.getPassScore() != null && exam.getTotalScore() != null
+                && exam.getPassScore().compareTo(exam.getTotalScore()) > 0) {
+            throw new BusinessException("及格分不能大于总分");
+        }
+        if (exam.getExamPaper() == null || exam.getExamPaper().getItems() == null || exam.getExamPaper().getItems().isEmpty()) {
+            throw new BusinessException("考试中没有题目，请先设置题目和分值");
+        }
+        Map<String, BigDecimal> typeScores = exam.getExamPaper().getTypeScores();
+        if (typeScores == null || typeScores.isEmpty()) {
+            throw new BusinessException("请先设置各题分值，总分必须大于0");
+        }
+        BigDecimal totalScore = exam.getExamPaper().getItems().stream()
+                .map(q -> computeQuestionScore(q, typeScores))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (totalScore.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("请先设置各题分值，总分必须大于0");
+        }
+        exam.setTotalScore(totalScore);
+        if (exam.getCourseId() != null) {
+            Course publishCourse = courseService.getById(exam.getCourseId());
+            if (publishCourse == null) {
+                throw new BusinessException("关联课程不存在");
+            }
+            if (!publishCourse.getTeacherId().equals(userId)) {
+                throw new BusinessException("无权在该课程下发布考试");
+            }
+        }
 
         exam.setStatus(ExamStatusEnum.PUBLISHED.getCode());
         updateById(exam);
     }
 
     @Transactional
-    public void cancelExam(Long examId) {
-        Exam exam = getById(examId);
-        if (exam == null) {
-            throw new BusinessException("考试不存在");
-        }
+    public void endExam(Long examId, Long userId, String userRole) {
+        Exam exam = checkOwnership(examId, userId, userRole);
+        applyCurrentStatus(exam);
 
-        boolean cancellable = ExamStatusEnum.DRAFT.getCode().equals(exam.getStatus())
-                || ExamStatusEnum.PUBLISHED.getCode().equals(exam.getStatus());
-        if (!cancellable) {
-            throw new BusinessException("当前考试状态不允许取消");
-        }
-
-        exam.setStatus(ExamStatusEnum.CANCELLED.getCode());
-        updateById(exam);
-    }
-
-    public void checkOwnership(Long examId, Long userId, String userRole) {
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
+        if (ExamStatusEnum.ENDED.getCode().equals(exam.getStatus())) {
             return;
         }
+        if (!ExamStatusEnum.STARTED.getCode().equals(exam.getStatus())) {
+            throw new BusinessException("仅进行中的考试可以提前结束");
+        }
 
+        exam.setStatus(ExamStatusEnum.ENDED.getCode());
+        exam.setEndedAt(LocalDateTime.now());
+        updateById(exam);
+        log.info("教师 [{}] 提前结束了考试 [{}]", userId, examId);
+    }
+
+    public Exam checkOwnership(Long examId, Long userId, String userRole) {
         Exam exam = getById(examId);
         if (exam == null) {
             throw new BusinessException("考试不存在");
         }
-        if (!exam.getTeacherId().equals(userId)) {
+        if (exam.getTeacherId() == null || !exam.getTeacherId().equals(userId)) {
             throw new BusinessException("无权操作该考试");
         }
+        return exam;
     }
 
     public void checkCanDelete(Long examId) {
@@ -760,6 +910,15 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         if (!sessions.isEmpty()) {
             throw new BusinessException("已有 " + sessions.size() + " 名学生参加该考试，无法删除");
         }
+    }
+
+    @Transactional
+    public void deleteExam(Long examId) {
+        examSessionService.lambdaUpdate()
+                .eq(ExamSession::getExamId, examId)
+                .set(ExamSession::getDeleted, 1)
+                .update();
+        removeById(examId);
     }
 
     @Transactional
@@ -780,7 +939,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         if (exam == null) {
             throw new BusinessException("无权评分该考试");
         }
-        if (!RoleEnum.ADMIN.getCode().equals(operatorRole) && !exam.getTeacherId().equals(operatorId)) {
+        if (exam.getTeacherId() == null || !exam.getTeacherId().equals(operatorId)) {
             throw new BusinessException("无权评分该考试");
         }
 
@@ -791,7 +950,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             throw new BusinessException("该考试无需评分");
         }
 
-        Paper paper = paperService.getById(exam.getPaperId());
+        Map<Long, BigDecimal> scoreMap = getScoreMapFromExam(exam);
 
         List<ExamSession.Answer> answers = session.getAnswers();
         if (answers == null || answers.isEmpty()) {
@@ -812,11 +971,11 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             if (answer == null) {
                 answer = new ExamSession.Answer();
                 answer.setQuestionId(grade.getQuestionId());
-                String questionType = getQuestionType(paper, grade.getQuestionId());
-                if (questionType == null) {
-                    throw new BusinessException("题目 " + grade.getQuestionId() + " 类型信息获取失败");
+                Exam.ExamQuestion examQuestion = findExamQuestion(exam, grade.getQuestionId());
+                if (examQuestion == null) {
+                    throw new BusinessException("题目 " + grade.getQuestionId() + " 不在本考试中");
                 }
-                answer.setQuestionType(questionType);
+                answer.setQuestionType(examQuestion.getType());
                 answer.setAnswer(null);
                 answers.add(answer);
             }
@@ -825,7 +984,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
                 throw new BusinessException("题目 " + grade.getQuestionId() + " 不是主观题，不能手动评分");
             }
 
-            BigDecimal maxScore = getQuestionScore(paper, grade.getQuestionId());
+            BigDecimal maxScore = scoreMap.getOrDefault(grade.getQuestionId(), BigDecimal.ZERO);
             if (grade.getScore().compareTo(maxScore) > 0) {
                 throw new BusinessException("题目 " + grade.getQuestionId() + " 的得分不能超过满分 " + maxScore);
             }
@@ -873,31 +1032,13 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         checkOwnership(examId, operatorId, operatorRole);
 
         Exam exam = getById(examId);
-        if (exam == null) {
-            throw new BusinessException("考试不存在");
-        }
 
         List<ExamSession> sessions = examSessionService.getByExamId(examId);
         if (sessions == null || sessions.isEmpty()) {
             return 0;
         }
 
-        Paper paper = paperService.getById(exam.getPaperId());
-        if (paper == null) {
-            throw new BusinessException("试卷不存在");
-        }
-
-        List<Long> questionIds = sessions.stream()
-                .filter(s -> s.getAnswers() != null && !s.getAnswers().isEmpty())
-                .flatMap(s -> s.getAnswers().stream())
-                .map(ExamSession.Answer::getQuestionId)
-                .filter(id -> id != null)
-                .distinct()
-                .collect(Collectors.toList());
-        Map<Long, Question> questionMap = questionIds.isEmpty()
-                ? Map.of()
-                : questionService.listByIds(questionIds).stream()
-                .collect(Collectors.toMap(Question::getId, q -> q));
+        Map<Long, BigDecimal> scoreMap = getScoreMapFromExam(exam);
 
         int processed = 0;
         for (ExamSession session : sessions) {
@@ -920,20 +1061,20 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
                 if (answer == null || answer.getQuestionId() == null) {
                     continue;
                 }
-                Question question = questionMap.get(answer.getQuestionId());
-                if (question == null) {
+                Exam.ExamQuestion examQuestion = findExamQuestion(exam, answer.getQuestionId());
+                if (examQuestion == null) {
                     continue;
                 }
 
-                answer.setQuestionType(question.getType());
-                if (OBJECTIVE_TYPES.contains(question.getType())) {
-                    boolean isCorrect = checkAnswer(question, answer.getAnswer());
+                answer.setQuestionType(examQuestion.getType());
+                if (OBJECTIVE_TYPES.contains(examQuestion.getType())) {
+                    boolean isCorrect = checkAnswerByExamQuestion(examQuestion, answer.getAnswer());
                     answer.setIsCorrect(isCorrect);
                     answer.setGradingStatus(GradingStatusEnum.GRADED.getCode());
-                    BigDecimal score = isCorrect ? getQuestionScore(paper, answer.getQuestionId()) : BigDecimal.ZERO;
+                    BigDecimal score = isCorrect ? scoreMap.getOrDefault(answer.getQuestionId(), BigDecimal.ZERO) : BigDecimal.ZERO;
                     answer.setScore(score);
                     objectiveScore = objectiveScore.add(score);
-                } else if (SUBJECTIVE_TYPES.contains(question.getType())) {
+                } else if (SUBJECTIVE_TYPES.contains(examQuestion.getType())) {
                     hasEssay = true;
                     if ((GradingStatusEnum.GRADED.getCode().equals(answer.getGradingStatus())
                             || GradingStatusEnum.COMPLETED.getCode().equals(answer.getGradingStatus()))
@@ -987,12 +1128,12 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             throw new BusinessException("考试不存在");
         }
 
-        boolean canViewAsTeacher = RoleEnum.ADMIN.getCode().equals(userRole) || exam.getTeacherId().equals(userId);
+        boolean canViewAsTeacher = userId.equals(exam.getTeacherId());
         if (!session.getStudentId().equals(userId) && !canViewAsTeacher) {
             throw new BusinessException("无权查看该考试结果");
         }
 
-        Paper paper = paperService.getById(exam.getPaperId());
+        Map<Long, BigDecimal> scoreMap = getScoreMapFromExam(exam);
 
         BigDecimal objectiveScore = BigDecimal.ZERO;
         BigDecimal subjectiveScore = BigDecimal.ZERO;
@@ -1003,15 +1144,10 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         if (sessionAnswers == null || sessionAnswers.isEmpty()) {
             throw new BusinessException("暂无答题记录");
         }
-        List<Long> questionIds = sessionAnswers.stream()
-                .map(ExamSession.Answer::getQuestionId)
-                .collect(Collectors.toList());
-        Map<Long, Question> questionMap = questionService.listByIds(questionIds).stream()
-                .collect(Collectors.toMap(Question::getId, q -> q));
 
         for (ExamSession.Answer answer : sessionAnswers) {
-            Question question = questionMap.get(answer.getQuestionId());
-            BigDecimal maxScore = getQuestionScore(paper, answer.getQuestionId());
+            Exam.ExamQuestion examQuestion = findExamQuestion(exam, answer.getQuestionId());
+            BigDecimal maxScore = scoreMap.getOrDefault(answer.getQuestionId(), BigDecimal.ZERO);
 
             if (OBJECTIVE_TYPES.contains(answer.getQuestionType())) {
                 objectiveScore = objectiveScore.add(answer.getScore() != null ? answer.getScore() : BigDecimal.ZERO);
@@ -1021,7 +1157,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
 
             ExamResultResponse.AnswerDetail detail = new ExamResultResponse.AnswerDetail();
             detail.setQuestionId(answer.getQuestionId());
-            detail.setQuestionContent(question != null ? question.getContent() : "");
+            detail.setQuestionContent(examQuestion != null ? examQuestion.getContent() : "");
             detail.setQuestionType(answer.getQuestionType());
             detail.setAnswer(answer.getAnswer());
             detail.setIsCorrect(answer.getIsCorrect());
@@ -1045,6 +1181,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         result.setSubjectiveScore(subjectiveScore);
         result.setTotalScore(session.getScore());
         result.setMaxScore(exam.getTotalScore());
+        result.setPassScore(exam.getPassScore());
         result.setGradingStatus(session.getGradingStatus());
         result.setAnswers(answerDetails);
 
@@ -1053,55 +1190,97 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
 
     public PageResult<Exam> page(PageRequest pageRequest, Long courseId, Long teacherId, String status,
                                   Long currentUserId, String currentUserRole) {
-        boolean isAdmin = RoleEnum.ADMIN.getCode().equals(currentUserRole);
-        if (!isAdmin && teacherId != null && !teacherId.equals(currentUserId)) {
+        if (teacherId != null && !teacherId.equals(currentUserId)) {
             return PageResult.empty(pageRequest.getCurrent(), pageRequest.getSize());
         }
+
+        boolean isStoredStatus = StringUtils.isNotBlank(status)
+                && (ExamStatusEnum.DRAFT.getCode().equals(status) || ExamStatusEnum.ENDED.getCode().equals(status));
+
+        Page<Exam> page = new Page<>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<Exam> wrapper = new LambdaQueryWrapper<>();
+        applySharedFilters(wrapper, courseId, teacherId, currentUserId);
+
+        if (isStoredStatus) {
+            wrapper.eq(Exam::getStatus, status);
+        } else {
+            applyTimeFilter(wrapper, status);
+        }
+
+        applyDbSorting(wrapper, pageRequest);
+        Page<Exam> dbPage = page(page, wrapper);
+        List<Exam> records = dbPage.getRecords();
+
+        if (!isStoredStatus) {
+            applyCurrentStatuses(records);
+        }
+        fillExamDisplayFields(records);
+
+        PageResult<Exam> result = new PageResult<>();
+        result.setCurrent((int) dbPage.getCurrent());
+        result.setSize((int) dbPage.getSize());
+        result.setTotal(dbPage.getTotal());
+        result.setPages(dbPage.getPages());
+        result.setRecords(records);
+        result.setHasNext(dbPage.hasNext());
+        result.setHasPrevious(dbPage.hasPrevious());
+        return result;
+    }
+
+    private void applySharedFilters(LambdaQueryWrapper<Exam> wrapper, Long courseId, Long teacherId,
+                                      Long currentUserId) {
         if (teacherId != null) {
             wrapper.eq(Exam::getTeacherId, teacherId);
-        } else if (!isAdmin) {
+        } else {
             wrapper.eq(Exam::getTeacherId, currentUserId);
         }
         if (courseId != null) {
             wrapper.eq(Exam::getCourseId, courseId);
         }
-        if (StringUtils.isNotBlank(status)
-                && (ExamStatusEnum.DRAFT.getCode().equals(status) || ExamStatusEnum.CANCELLED.getCode().equals(status))) {
-            wrapper.eq(Exam::getStatus, status);
+    }
+
+    private void applyTimeFilter(LambdaQueryWrapper<Exam> wrapper, String status) {
+        if (status == null) {
+            return;
         }
-
-        List<Exam> exams = list(wrapper);
-        applyCurrentStatuses(exams);
-
-        if (StringUtils.isNotBlank(status)) {
-            exams = exams.stream()
-                    .filter(exam -> status.equals(exam.getStatus()))
-                    .collect(Collectors.toList());
+        boolean isDynamic = !ExamStatusEnum.DRAFT.getCode().equals(status)
+                && !ExamStatusEnum.ENDED.getCode().equals(status);
+        if (!isDynamic) {
+            return;
         }
-
-        sortExams(exams, pageRequest);
-
-        int current = pageRequest.getCurrent();
-        int size = pageRequest.getSize();
-        int fromIndex = Math.max((current - 1) * size, 0);
-        if (fromIndex >= exams.size()) {
-            return PageResult.empty(current, size);
+        LocalDateTime now = LocalDateTime.now();
+        if (ExamStatusEnum.PUBLISHED.getCode().equals(status)) {
+            wrapper.gt(Exam::getStartedAt, now);
+        } else if (ExamStatusEnum.STARTED.getCode().equals(status)) {
+            wrapper.le(Exam::getStartedAt, now).gt(Exam::getEndedAt, now);
+        } else if (ExamStatusEnum.ENDED.getCode().equals(status)) {
+            wrapper.le(Exam::getEndedAt, now);
         }
+    }
 
-        int toIndex = Math.min(fromIndex + size, exams.size());
-        List<Exam> pageRecords = new ArrayList<>(exams.subList(fromIndex, toIndex));
-        fillExamDisplayFields(pageRecords);
-
-        PageResult<Exam> result = new PageResult<>();
-        result.setCurrent(current);
-        result.setSize(size);
-        result.setTotal((long) exams.size());
-        result.setPages((long) Math.ceil((double) exams.size() / size));
-        result.setRecords(pageRecords);
-        result.setHasNext(toIndex < exams.size());
-        result.setHasPrevious(current > 1);
-        return result;
+    private void applyDbSorting(LambdaQueryWrapper<Exam> wrapper, PageRequest pageRequest) {
+        String orderBy = StringUtils.isBlank(pageRequest.getOrderBy()) ? "id" : pageRequest.getOrderBy().toLowerCase();
+        boolean asc = Boolean.TRUE.equals(pageRequest.getAsc());
+        switch (orderBy) {
+            case "createtime", "created_at" -> {
+                if (asc) wrapper.orderByAsc(Exam::getCreatedAt); else wrapper.orderByDesc(Exam::getCreatedAt);
+            }
+            case "startedat", "started_at", "starttime" -> {
+                if (asc) wrapper.orderByAsc(Exam::getStartedAt); else wrapper.orderByDesc(Exam::getStartedAt);
+            }
+            case "endedat", "ended_at", "endtime" -> {
+                if (asc) wrapper.orderByAsc(Exam::getEndedAt); else wrapper.orderByDesc(Exam::getEndedAt);
+            }
+            case "totalscore" -> {
+                if (asc) wrapper.orderByAsc(Exam::getTotalScore); else wrapper.orderByDesc(Exam::getTotalScore);
+            }
+            case "duration" -> {
+                if (asc) wrapper.orderByAsc(Exam::getDuration); else wrapper.orderByDesc(Exam::getDuration);
+            }
+            default -> {
+                if (asc) wrapper.orderByAsc(Exam::getId); else wrapper.orderByDesc(Exam::getId);
+            }
+        }
     }
 
     private void fillExamDisplayFields(List<Exam> exams) {
@@ -1132,33 +1311,6 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
                 exam.setTeacherName(teacherNameMap.get(exam.getTeacherId()));
             }
         }
-    }
-
-    private void sortExams(List<Exam> exams, PageRequest pageRequest) {
-        String orderBy = StringUtils.isBlank(pageRequest.getOrderBy()) ? "id" : pageRequest.getOrderBy().toLowerCase();
-        Comparator<Exam> comparator = switch (orderBy) {
-            case "createtime", "created_at" ->
-                    Comparator.comparing(Exam::getCreatedAt, Comparator.nullsLast(LocalDateTime::compareTo));
-            case "startedat", "started_at", "starttime" ->
-                    Comparator.comparing(Exam::getStartedAt, Comparator.nullsLast(LocalDateTime::compareTo));
-            case "endedat", "ended_at", "endtime" ->
-                    Comparator.comparing(Exam::getEndedAt, Comparator.nullsLast(LocalDateTime::compareTo));
-            case "totalscore" ->
-                    Comparator.comparing(Exam::getTotalScore, Comparator.nullsLast(BigDecimal::compareTo));
-            case "passscore" ->
-                    Comparator.comparing(Exam::getPassScore, Comparator.nullsLast(BigDecimal::compareTo));
-            case "duration" ->
-                    Comparator.comparing(Exam::getDuration, Comparator.nullsLast(Integer::compareTo));
-            case "status" ->
-                    Comparator.comparing(Exam::getStatus, Comparator.nullsLast(String::compareTo));
-            default ->
-                    Comparator.comparing(Exam::getId, Comparator.nullsLast(Long::compareTo));
-        };
-
-        if (!Boolean.TRUE.equals(pageRequest.getAsc())) {
-            comparator = comparator.reversed();
-        }
-        exams.sort(comparator);
     }
 
     private void validateAnswers(List<ExamSession.Answer> answers) {
@@ -1214,7 +1366,7 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
         if (QuestionTypeEnum.MULTIPLE_CHOICE.getCode().equals(answer.getQuestionType()) && JSONUtil.isTypeJSONArray(value)) {
             try {
                 return !JSONUtil.toList(value, String.class).isEmpty();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
                 return false;
             }
         }
@@ -1223,24 +1375,18 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
     }
 
     private LocalDateTime sessionDeadline(ExamSession session, Integer durationMinutes) {
+        if (session.getStartedAt() == null) {
+            throw new BusinessException("考试开始时间异常");
+        }
         return session.getStartedAt().plusMinutes(durationMinutes).plusSeconds(30);
     }
 
-    private Set<Long> getPaperQuestionIdSet(Paper paper) {
-        if (paper == null || paper.getQuestions() == null) {
-            return Set.of();
-        }
-        return paper.getQuestions().stream()
-                .map(Paper.PaperQuestion::getQuestionId)
-                .collect(Collectors.toSet());
-    }
-
-    private void validateAnswerQuestionIds(List<ExamSession.Answer> answers, Set<Long> paperQuestionIds) {
+    private void validateAnswerQuestionIds(List<ExamSession.Answer> answers, Set<Long> examQuestionIds) {
         if (answers == null || answers.isEmpty()) {
             return;
         }
-        if (paperQuestionIds.isEmpty()) {
-            throw new BusinessException("考试试卷题目不存在，无法提交");
+        if (examQuestionIds.isEmpty()) {
+            throw new BusinessException("考试题目不存在，无法提交");
         }
 
         Set<Long> submittedQuestionIds = new HashSet<>();
@@ -1249,11 +1395,71 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             if (!submittedQuestionIds.add(questionId)) {
                 throw new BusinessException("题目 " + questionId + " 重复提交");
             }
-            if (!paperQuestionIds.contains(questionId)) {
+            if (!examQuestionIds.contains(questionId)) {
                 throw new BusinessException("题目 " + questionId + " 不属于当前考试");
             }
         }
     }
+
+    // ========== 从 exam.examPaper 获取数据的辅助方法 ==========
+
+    /**
+     * 根据题型和正确答案计算单题分值（填空题按空数乘）
+     */
+    private BigDecimal computeQuestionScore(Exam.ExamQuestion q, Map<String, BigDecimal> typeScores) {
+        BigDecimal base = typeScores != null ? typeScores.getOrDefault(q.getType(), BigDecimal.ZERO) : BigDecimal.ZERO;
+        if ("FILL_BLANK".equals(q.getType()) && q.getCorrectAnswer() instanceof java.util.List<?> list && !list.isEmpty()) {
+            return base.multiply(BigDecimal.valueOf(list.size()));
+        }
+        return base;
+    }
+
+    /**
+     * 从 exam.examPaper 构建分值 Map
+     */
+    private Map<Long, BigDecimal> getScoreMapFromExam(Exam exam) {
+        if (exam == null || exam.getExamPaper() == null || exam.getExamPaper().getItems() == null) {
+            return Map.of();
+        }
+        Map<String, BigDecimal> typeScores = exam.getExamPaper().getTypeScores();
+        if (typeScores == null || typeScores.isEmpty()) {
+            return Map.of();
+        }
+        return exam.getExamPaper().getItems().stream()
+                .filter(q -> q.getQuestionId() != null)
+                .collect(Collectors.toMap(
+                        Exam.ExamQuestion::getQuestionId,
+                        q -> computeQuestionScore(q, typeScores),
+                        (a, b) -> a));
+    }
+
+    /**
+     * 从 exam.examPaper 获取题目ID集合
+     */
+    private Set<Long> getQuestionIdsFromExam(Exam exam) {
+        if (exam == null || exam.getExamPaper() == null || exam.getExamPaper().getItems() == null) {
+            return Set.of();
+        }
+        return exam.getExamPaper().getItems().stream()
+                .map(Exam.ExamQuestion::getQuestionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * 在 exam.examPaper 中查找指定题目
+     */
+    private Exam.ExamQuestion findExamQuestion(Exam exam, Long questionId) {
+        if (exam == null || exam.getExamPaper() == null || exam.getExamPaper().getItems() == null || questionId == null) {
+            return null;
+        }
+        return exam.getExamPaper().getItems().stream()
+                .filter(q -> q.getQuestionId() != null && q.getQuestionId().equals(questionId))
+                .findFirst()
+                .orElse(null);
+    }
+
+    // ========== 状态动态计算 ==========
 
     private void applyCurrentStatuses(List<Exam> exams) {
         if (exams == null || exams.isEmpty()) {
@@ -1272,19 +1478,189 @@ public class ExamService extends ServiceImpl<ExamMapper, Exam> {
             return;
         }
         if (ExamStatusEnum.DRAFT.getCode().equals(exam.getStatus())
-                || ExamStatusEnum.CANCELLED.getCode().equals(exam.getStatus())) {
+                || ExamStatusEnum.ENDED.getCode().equals(exam.getStatus())) {
             return;
         }
         if (exam.getStartedAt() == null || exam.getEndedAt() == null) {
             return;
         }
 
+        String newStatus;
         if (now.isAfter(exam.getEndedAt())) {
-            exam.setStatus(ExamStatusEnum.ENDED.getCode());
+            newStatus = ExamStatusEnum.ENDED.getCode();
         } else if (!now.isBefore(exam.getStartedAt())) {
-            exam.setStatus(ExamStatusEnum.STARTED.getCode());
+            newStatus = ExamStatusEnum.STARTED.getCode();
         } else {
-            exam.setStatus(ExamStatusEnum.PUBLISHED.getCode());
+            newStatus = ExamStatusEnum.PUBLISHED.getCode();
         }
+
+        if (!newStatus.equals(exam.getStatus())) {
+            exam.setStatus(newStatus);
+            if (exam.getId() != null) {
+                lambdaUpdate().eq(Exam::getId, exam.getId()).set(Exam::getStatus, newStatus).update();
+            }
+        }
+    }
+
+    // ========== 定时任务 ==========
+
+    @Scheduled(fixedRate = 60000)
+    public void autoSubmitExpiredSessions() {
+        try {
+            List<ExamSession> expiredSessions = examSessionService.getExpiredInProgress();
+            if (expiredSessions == null || expiredSessions.isEmpty()) {
+                return;
+            }
+            log.info("开始处理过期考试会话，共 {} 个", expiredSessions.size());
+            int processed = 0;
+            for (ExamSession session : expiredSessions) {
+                try {
+                    submitExpiredSession(session);
+                    processed++;
+                } catch (Exception e) {
+                    log.error("强制交卷失败: sessionId={}", session.getId(), e);
+                }
+            }
+            log.info("过期考试处理完成，成功处理 {} 个", processed);
+        } catch (Exception e) {
+            log.error("autoSubmitExpiredSessions 定时任务执行异常", e);
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void submitExpiredSession(ExamSession session) {
+        Exam exam = getById(session.getExamId());
+        if (exam == null) {
+            return;
+        }
+        List<ExamSession.Answer> answers = session.getAnswers();
+        if (answers == null) {
+            answers = List.of();
+        }
+        answers = normalizeSubmittedAnswers(answers);
+
+        BigDecimal objectiveScore = BigDecimal.ZERO;
+        boolean hasSubjective = false;
+
+        if (!answers.isEmpty()) {
+            Map<Long, BigDecimal> scoreMap = getScoreMapFromExam(exam);
+
+            for (ExamSession.Answer answer : answers) {
+                if (answer == null || answer.getQuestionId() == null) {
+                    continue;
+                }
+                Exam.ExamQuestion examQuestion = findExamQuestion(exam, answer.getQuestionId());
+                if (examQuestion == null) {
+                    continue;
+                }
+                answer.setQuestionType(examQuestion.getType());
+
+                if (OBJECTIVE_TYPES.contains(examQuestion.getType())) {
+                    boolean isCorrect = checkAnswerByExamQuestion(examQuestion, answer.getAnswer());
+                    answer.setIsCorrect(isCorrect);
+                    answer.setGradingStatus(GradingStatusEnum.GRADED.getCode());
+                    if (isCorrect) {
+                        BigDecimal score = scoreMap.getOrDefault(answer.getQuestionId(), BigDecimal.ZERO);
+                        answer.setScore(score);
+                        objectiveScore = objectiveScore.add(score);
+                    } else {
+                        answer.setScore(BigDecimal.ZERO);
+                    }
+                } else if (SUBJECTIVE_TYPES.contains(examQuestion.getType())) {
+                    hasSubjective = true;
+                    answer.setIsCorrect(null);
+                    answer.setScore(null);
+                    answer.setGradingStatus(GradingStatusEnum.PENDING.getCode());
+                }
+            }
+        }
+
+        session.setAnswers(answers.isEmpty() ? List.of() : answers);
+        session.setScore(objectiveScore);
+        session.setSubmittedAt(LocalDateTime.now());
+        session.setStatus(hasSubjective ? ExamSessionStatusEnum.SUBMITTED.getCode() : ExamSessionStatusEnum.GRADED.getCode());
+        session.setGradingStatus(hasSubjective ? GradingStatusEnum.PENDING.getCode() : GradingStatusEnum.COMPLETED.getCode());
+        examSessionService.updateById(session);
+        log.info("强制交卷成功: sessionId={}, examId={}, studentId={}, hasSubjective={}",
+                session.getId(), session.getExamId(), session.getStudentId(), hasSubjective);
+    }
+
+    // ========== 转换方法 ==========
+
+    public ExamResponse convertToResponse(Exam exam) {
+        if (exam == null) {
+            return null;
+        }
+        ExamResponse response = new ExamResponse();
+        BeanUtils.copyProperties(exam, response);
+        return response;
+    }
+
+    public List<ExamResponse> convertToResponses(List<Exam> exams) {
+        if (exams == null || exams.isEmpty()) {
+            return List.of();
+        }
+        return exams.stream()
+                .map(this::convertToResponse)
+                .toList();
+    }
+
+    public PageResult<ExamResponse> convertToPageResult(PageResult<Exam> pageResult) {
+        if (pageResult == null) {
+            return PageResult.empty(1, 10);
+        }
+        PageResult<ExamResponse> response = new PageResult<>();
+        List<ExamResponse> records = convertToResponses(pageResult.getRecords());
+        injectExamStats(records);
+        response.setRecords(records);
+        response.setTotal(pageResult.getTotal());
+        response.setSize(pageResult.getSize());
+        response.setCurrent(pageResult.getCurrent());
+        response.setPages(pageResult.getPages());
+        response.setHasNext(pageResult.getHasNext());
+        response.setHasPrevious(pageResult.getHasPrevious());
+        return response;
+    }
+
+    private void injectExamStats(List<ExamResponse> responses) {
+        if (responses == null || responses.isEmpty()) return;
+        List<Long> examIds = responses.stream().map(ExamResponse::getId).toList();
+        Map<Long, Integer> participantMap = new HashMap<>();
+        Map<Long, Integer> submittedMap = new HashMap<>();
+        Map<Long, Integer> pendingMap = new HashMap<>();
+
+        List<ExamSession> sessions = examSessionService.lambdaQuery()
+                .in(ExamSession::getExamId, examIds)
+                .list();
+        for (ExamSession s : sessions) {
+            Long eid = s.getExamId();
+            participantMap.merge(eid, 1, Integer::sum);
+            if (ExamSessionStatusEnum.SUBMITTED.getCode().equals(s.getStatus())
+                    || ExamSessionStatusEnum.GRADED.getCode().equals(s.getStatus())) {
+                submittedMap.merge(eid, 1, Integer::sum);
+                String gs = s.getGradingStatus();
+                if (GradingStatusEnum.PENDING.getCode().equals(gs)
+                        || GradingStatusEnum.GRADING.getCode().equals(gs)) {
+                    pendingMap.merge(eid, 1, Integer::sum);
+                }
+            }
+        }
+        for (ExamResponse r : responses) {
+            r.setParticipantCount(participantMap.getOrDefault(r.getId(), 0).longValue());
+            r.setSubmittedCount(submittedMap.getOrDefault(r.getId(), 0).longValue());
+            r.setPendingGradingCount(pendingMap.getOrDefault(r.getId(), 0).longValue());
+        }
+    }
+
+    public ExamSessionResponse convertSessionToResponse(ExamSession session) {
+        return examSessionService.convertToResponse(session);
+    }
+
+    public PaperResponse convertPaperToResponse(Paper paper) {
+        return paperService.convertToResponse(paper);
+    }
+
+    public List<QuestionResponse> convertQuestionsToResponses(List<Question> questions, String userRole) {
+        return questionService.convertToResponses(questions, userRole);
     }
 }

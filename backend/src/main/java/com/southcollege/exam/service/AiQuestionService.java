@@ -21,7 +21,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 
 /**
@@ -114,33 +116,35 @@ public class AiQuestionService {
      */
     private String callAiApi(AiConfig config, String prompt) {
         try {
-            // 构建请求体
-            JSONObject body = new JSONObject();
-            body.set("model", config.getActiveModel());
+            JSONObject body = buildAiRequestBody(config, prompt);
 
-            JSONArray messages = new JSONArray();
-            JSONObject userMessage = new JSONObject();
-            userMessage.set("role", "user");
-            userMessage.set("content", prompt);
-            messages.add(userMessage);
-            body.set("messages", messages);
-
-            // 获取API URL（智能处理base_url）
             String apiUrl = getApiUrl(config.getBaseUrl());
 
-            // 发送HTTP请求
             try (HttpResponse response = HttpRequest.post(apiUrl)
                     .header("Authorization", "Bearer " + config.getApiKey())
                     .header("Content-Type", "application/json")
                     .body(body.toString())
-                    .timeout(60000)  // 60秒超时
+                    .timeout(60000)
                     .execute()) {
 
                 if (response.getStatus() != 200) {
-                    throw new BusinessException("AI请求失败: " + response.body());
+                    String responseBody = response.body();
+                    String truncatedBody = responseBody != null && responseBody.length() > 200
+                            ? responseBody.substring(0, 200) + "..."
+                            : responseBody;
+                    log.error("AI请求失败, status={}, response={}", response.getStatus(), truncatedBody);
+                    if (response.getStatus() == 401 || response.getStatus() == 403) {
+                        throw new BusinessException("API Key 无效或已过期，请检查AI配置");
+                    }
+                    if (response.getStatus() == 429) {
+                        throw new BusinessException("AI服务请求过于频繁，请稍后重试");
+                    }
+                    if (response.getStatus() >= 500) {
+                        throw new BusinessException("AI服务端错误，请稍后重试");
+                    }
+                    throw new BusinessException("AI请求失败(HTTP " + response.getStatus() + ")，请检查AI配置");
                 }
 
-                // 解析响应
                 JSONObject result = new JSONObject(response.body());
                 JSONArray choices = result.getJSONArray("choices");
                 if (choices == null || choices.isEmpty()) {
@@ -152,9 +156,22 @@ public class AiQuestionService {
                 return messageObj.getStr("content");
             }
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg != null) {
+                if (msg.contains("timeout") || msg.contains("Timeout")) {
+                    log.error("AI调用超时", e);
+                    throw new BusinessException("AI服务响应超时，请稍后重试");
+                }
+                if (msg.contains("Connection refused") || msg.contains("connect") || msg.contains("Connect")) {
+                    log.error("AI服务连接失败", e);
+                    throw new BusinessException("无法连接AI服务，请检查API地址是否正确");
+                }
+            }
             log.error("AI调用失败", e);
-            throw new BusinessException("AI调用失败: " + e.getMessage(), e);
+            throw new BusinessException("AI调用失败，请稍后重试");
         }
     }
     
@@ -179,6 +196,20 @@ public class AiQuestionService {
         
         // 否则拼接
         return url + "/chat/completions";
+    }
+
+    private JSONObject buildAiRequestBody(AiConfig config, String prompt) {
+        JSONObject body = new JSONObject();
+        body.set("model", config.getActiveModel());
+
+        JSONArray messages = new JSONArray();
+        JSONObject userMessage = new JSONObject();
+        userMessage.set("role", "user");
+        userMessage.set("content", prompt);
+        messages.add(userMessage);
+        body.set("messages", messages);
+
+        return body;
     }
 
     /**
@@ -216,6 +247,9 @@ public class AiQuestionService {
             // 解析JSON
             JSONObject jsonObject = JSONUtil.parseObj(jsonStr);
             JSONArray questionsArray = jsonObject.getJSONArray("questions");
+            if (questionsArray == null || questionsArray.isEmpty()) {
+                throw new BusinessException("AI 未返回有效题目");
+            }
             
             GeneratedQuestionResponse response = new GeneratedQuestionResponse();
             List<GeneratedQuestionResponse.QuestionItem> questions = new ArrayList<>();
@@ -295,7 +329,7 @@ public class AiQuestionService {
             
         } catch (Exception e) {
             log.error("解析AI返回结果失败，原始响应: {}", aiResponse, e);
-            throw new BusinessException("解析AI返回结果失败: " + e.getMessage());
+            throw new BusinessException("AI返回结果解析失败，请重试");
         }
     }
 
@@ -304,6 +338,10 @@ public class AiQuestionService {
     private static final int MAX_POOL_SIZE = 8;
     private static final int QUEUE_CAPACITY = 100;
     private static final long KEEP_ALIVE_TIME = 60L;
+
+    // 流式输出缓冲配置：攒够一定量再发送，减少SSE事件数量和网络开销
+    private static final int STREAM_BUFFER_MIN_CHARS = 30;
+    private static final long STREAM_BUFFER_MAX_INTERVAL_MS = 80;
     
     // 使用固定配置的线程池，避免资源耗尽
     private final ExecutorService executor = new ThreadPoolExecutor(
@@ -354,114 +392,125 @@ public class AiQuestionService {
         // 使用AtomicBoolean保证线程可见性和原子性
         final java.util.concurrent.atomic.AtomicBoolean isCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
 
-        executor.execute(() -> {
-            try {
-                // 获取用户启用的AI配置
-                AiConfig config = aiConfigService.getActiveByUserId(userId);
-                if (config == null || !config.hasActiveModel()) {
-                    // 发送错误事件而不是抛出异常
-                    safeSendEvent(emitter, "error", new java.util.HashMap<String, String>() {{ put("message", "未配置AI或没有激活的模型，请先在个人中心配置并激活AI模型"); }}, isCompleted);
-                    safeComplete(emitter, isCompleted);
-                    return;
+        try {
+            executor.execute(() -> {
+                try {
+                    // 获取用户启用的AI配置
+                    AiConfig config = aiConfigService.getActiveByUserId(userId);
+                    if (config == null || !config.hasActiveModel()) {
+                        // 发送错误事件而不是抛出异常
+                        safeSendEvent(emitter, "error", Map.of("message", "未配置AI或没有激活的模型，请先在个人中心配置并激活AI模型"), isCompleted);
+                        safeComplete(emitter, isCompleted);
+                        return;
+                    }
+
+                    // 构建提示词
+                    String prompt = buildPrompt(subject, type, difficulty, count, requirements);
+                    log.info("开始流式生成题目，用户ID: {}, 提示词长度: {}", userId, prompt.length());
+
+                    // 发送开始事件
+                    safeSendEvent(emitter, "start", Map.of("status", "started"), isCompleted);
+                    log.info("已发送start事件");
+
+                    // 流式调用AI API
+                    StringBuilder fullContent = new StringBuilder();
+                    streamCallAiApi(config, prompt, new StreamCallback() {
+                        @Override
+                        public void onChunk(String chunk) {
+                            if (isCompleted.get()) return;
+                            try {
+                                // 发送内容块（直接发送对象，让Spring自动序列化）
+                                java.util.Map<String, String> chunkData = new java.util.HashMap<>();
+                                chunkData.put("content", chunk);
+                                safeSendEvent(emitter, "chunk", chunkData, isCompleted);
+                                fullContent.append(chunk);
+                                log.debug("发送chunk事件，内容长度: {}", chunk.length());
+                            } catch (Exception e) {
+                                log.error("发送SSE消息失败", e);
+                            }
+                        }
+
+                         @Override
+                         public void onComplete(String fullResponse) {
+                             if (isCompleted.get()) return;
+                             try {
+                                 log.info("AI响应完成，总长度: {}", fullResponse.length());
+                                 // 打印前500个字符用于调试
+                                 log.info("AI响应内容预览: {}",
+                                     fullResponse.length() > 500 ? fullResponse.substring(0, 500) : fullResponse);
+
+                                 // 检查响应是否为空
+                                if (fullResponse == null || fullResponse.trim().isEmpty()) {
+                                    String errorMsg = "AI返回空响应，请检查API Key是否有效或AI服务是否正常";
+                                    log.error(errorMsg);
+                                    java.util.Map<String, String> errorData = new java.util.HashMap<>();
+                                    errorData.put("message", errorMsg);
+                                    safeSendEvent(emitter, "error", errorData, isCompleted);
+                                    safeCompleteWithError(emitter, new RuntimeException(errorMsg), isCompleted);
+                                    return;
+                                }
+
+                                // 解析完整响应
+                                GeneratedQuestionResponse response = parseAiResponse(fullResponse);
+                                log.info("解析完成，题目数量: {}", response.getQuestions().size());
+
+                                // 检查是否生成了题目
+                                if (response.getQuestions() == null || response.getQuestions().isEmpty()) {
+                                    String errorMsg = "AI未生成任何题目，请尝试调整提示词或重试";
+                                    log.warn(errorMsg);
+                                    java.util.Map<String, String> errorData2 = new java.util.HashMap<>();
+                                    errorData2.put("message", errorMsg);
+                                    safeSendEvent(emitter, "error", errorData2, isCompleted);
+                                    safeCompleteWithError(emitter, new RuntimeException(errorMsg), isCompleted);
+                                    return;
+                                }
+
+                                // 发送完成事件，包含解析后的题目（直接发送对象，让Spring自动序列化）
+                                safeSendEvent(emitter, "complete", response, isCompleted);
+                                safeComplete(emitter, isCompleted);
+                            } catch (Exception e) {
+                                log.error("解析AI响应失败", e);
+                                java.util.Map<String, String> errorData3 = new java.util.HashMap<>();
+                                errorData3.put("message", "AI响应解析失败，请稍后重试");
+                                safeSendEvent(emitter, "error", errorData3, isCompleted);
+                                safeCompleteWithError(emitter, e, isCompleted);
+                            }
+                         }
+
+                         @Override
+                        public void onError(String error) {
+                            if (isCompleted.get()) return;
+                            log.error("AI调用出错: {}", error);
+                            java.util.Map<String, String> errorData = new java.util.HashMap<>();
+                            errorData.put("message", "AI服务调用失败，请检查配置后重试");
+                            safeSendEvent(emitter, "error", errorData, isCompleted);
+                            safeCompleteWithError(emitter, new RuntimeException(error), isCompleted);
+                        }
+                    }, isCompleted);
+
+                } catch (Exception e) {
+                    log.error("流式生成题目失败", e);
+                    java.util.Map<String, String> errorData = new java.util.HashMap<>();
+                    errorData.put("message", "AI出题服务异常，请稍后重试");
+                    safeSendEvent(emitter, "error", errorData, isCompleted);
+                    safeCompleteWithError(emitter, e, isCompleted);
                 }
-
-                // 构建提示词
-                String prompt = buildPrompt(subject, type, difficulty, count, requirements);
-                log.info("开始流式生成题目，用户ID: {}, 提示词长度: {}", userId, prompt.length());
-
-                // 发送开始事件
-                safeSendEvent(emitter, "start", new java.util.HashMap<String, String>() {{ put("status", "started"); }}, isCompleted);
-                log.info("已发送start事件");
-
-                // 流式调用AI API
-                StringBuilder fullContent = new StringBuilder();
-                streamCallAiApi(config, prompt, new StreamCallback() {
-                    @Override
-                    public void onChunk(String chunk) {
-                        if (isCompleted.get()) return;
-                        try {
-                            // 发送内容块（直接发送对象，让Spring自动序列化）
-                            java.util.Map<String, String> chunkData = new java.util.HashMap<>();
-                            chunkData.put("content", chunk);
-                            safeSendEvent(emitter, "chunk", chunkData, isCompleted);
-                            fullContent.append(chunk);
-                            log.debug("发送chunk事件，内容长度: {}", chunk.length());
-                        } catch (Exception e) {
-                            log.error("发送SSE消息失败", e);
-                        }
-                    }
-
-                     @Override
-                     public void onComplete(String fullResponse) {
-                         if (isCompleted.get()) return;
-                         try {
-                             log.info("AI响应完成，总长度: {}", fullResponse.length());
-                             // 打印前500个字符用于调试
-                             log.info("AI响应内容预览: {}",
-                                 fullResponse.length() > 500 ? fullResponse.substring(0, 500) : fullResponse);
-
-                             // 检查响应是否为空
-                            if (fullResponse == null || fullResponse.trim().isEmpty()) {
-                                String errorMsg = "AI返回空响应，请检查API Key是否有效或AI服务是否正常";
-                                log.error(errorMsg);
-                                java.util.Map<String, String> errorData = new java.util.HashMap<>();
-                                errorData.put("message", errorMsg);
-                                safeSendEvent(emitter, "error", errorData, isCompleted);
-                                safeCompleteWithError(emitter, new RuntimeException(errorMsg), isCompleted);
-                                return;
-                            }
-
-                            // 解析完整响应
-                            GeneratedQuestionResponse response = parseAiResponse(fullResponse);
-                            log.info("解析完成，题目数量: {}", response.getQuestions().size());
-
-                            // 检查是否生成了题目
-                            if (response.getQuestions() == null || response.getQuestions().isEmpty()) {
-                                String errorMsg = "AI未生成任何题目，请尝试调整提示词或重试";
-                                log.warn(errorMsg);
-                                java.util.Map<String, String> errorData2 = new java.util.HashMap<>();
-                                errorData2.put("message", errorMsg);
-                                safeSendEvent(emitter, "error", errorData2, isCompleted);
-                                safeCompleteWithError(emitter, new RuntimeException(errorMsg), isCompleted);
-                                return;
-                            }
-
-                            // 发送完成事件，包含解析后的题目（直接发送对象，让Spring自动序列化）
-                            safeSendEvent(emitter, "complete", response, isCompleted);
-                            safeComplete(emitter, isCompleted);
-                        } catch (Exception e) {
-                            log.error("解析AI响应失败", e);
-                            java.util.Map<String, String> errorData3 = new java.util.HashMap<>();
-                            errorData3.put("message", "解析AI响应失败: " + e.getMessage());
-                            safeSendEvent(emitter, "error", errorData3, isCompleted);
-                            safeCompleteWithError(emitter, e, isCompleted);
-                        }
-                     }
-
-                     @Override
-                    public void onError(String error) {
-                        if (isCompleted.get()) return;
-                        log.error("AI调用出错: {}", error);
-                        java.util.Map<String, String> errorData = new java.util.HashMap<>();
-                        errorData.put("message", error);
-                        safeSendEvent(emitter, "error", errorData, isCompleted);
-                        safeCompleteWithError(emitter, new RuntimeException(error), isCompleted);
-                    }
-                }, isCompleted);
-
-            } catch (Exception e) {
-                log.error("流式生成题目失败", e);
-                java.util.Map<String, String> errorData = new java.util.HashMap<>();
-                errorData.put("message", e.getMessage());
-                safeSendEvent(emitter, "error", errorData, isCompleted);
-                safeCompleteWithError(emitter, e, isCompleted);
-            }
-        });
+            });
+        } catch (RejectedExecutionException e) {
+            log.warn("SSE 请求被拒绝，线程池已满");
+            Map<String, String> errorData = new HashMap<>();
+            errorData.put("message", "服务繁忙，请稍后重试");
+            safeSendEvent(emitter, "error", errorData, isCompleted);
+            safeComplete(emitter, isCompleted);
+        }
 
         // 设置超时和完成回调
         emitter.onTimeout(() -> {
             log.warn("SSE连接超时");
             isCompleted.set(true);
+            java.util.Map<String, String> errorData = new java.util.HashMap<>();
+            errorData.put("message", "AI 生成超时，请重试");
+            safeSendEvent(emitter, "error", errorData, isCompleted);
             safeComplete(emitter, isCompleted);
         });
 
@@ -535,19 +584,9 @@ public class AiQuestionService {
     private void streamCallAiApi(AiConfig config, String prompt, StreamCallback callback, java.util.concurrent.atomic.AtomicBoolean isCompleted) {
         HttpURLConnection connection = null;
         try {
-            // 构建请求体
-            JSONObject body = new JSONObject();
-            body.set("model", config.getActiveModel());
-            body.set("stream", true);  // 开启流式模式
+            JSONObject body = buildAiRequestBody(config, prompt);
+            body.set("stream", true);
 
-            JSONArray messages = new JSONArray();
-            JSONObject userMessage = new JSONObject();
-            userMessage.set("role", "user");
-            userMessage.set("content", prompt);
-            messages.add(userMessage);
-            body.set("messages", messages);
-
-            // 获取API URL（智能处理base_url）
             String apiUrl = getApiUrl(config.getBaseUrl());
             log.info("流式API请求URL: {}", apiUrl);
 
@@ -579,7 +618,11 @@ public class AiQuestionService {
                 } catch (Exception e) {
                     log.warn("读取错误响应失败: {}", e.getMessage());
                 }
-                callback.onError("AI请求失败 (HTTP " + responseCode + "): " + errorResponse);
+                String truncatedError = errorResponse != null && errorResponse.length() > 200
+                        ? errorResponse.substring(0, 200) + "..."
+                        : errorResponse;
+                log.error("AI请求失败, HTTP状态码: {}, 错误响应: {}", responseCode, truncatedError);
+                callback.onError("AI请求失败 (HTTP " + responseCode + ")，请检查AI配置");
                 return;
             }
 
@@ -587,6 +630,9 @@ public class AiQuestionService {
             StringBuilder fullContent = new StringBuilder();
             int lineCount = 0;
             int chunkCount = 0;
+            // 攒批缓冲：积累多个AI token再发送，减少SSE事件数量和网络协议开销
+            StringBuilder chunkBuffer = new StringBuilder();
+            long lastFlushTime = System.currentTimeMillis();
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -620,7 +666,14 @@ public class AiQuestionService {
                                     if (content != null) {
                                         chunkCount++;
                                         fullContent.append(content);
-                                        callback.onChunk(content);
+                                        // 攒批：先累积到缓冲区，达到阈值或超时后再发送
+                                        chunkBuffer.append(content);
+                                        if (shouldFlushBuffer(chunkBuffer, lastFlushTime)) {
+                                            String batched = chunkBuffer.toString();
+                                            callback.onChunk(batched);
+                                            chunkBuffer.setLength(0);
+                                            lastFlushTime = System.currentTimeMillis();
+                                        }
                                     }
                                 }
                             }
@@ -638,16 +691,35 @@ public class AiQuestionService {
             }
 
             log.info("流式读取完成，共 {} 行，{} 个有效chunk，总内容长度: {}", lineCount, chunkCount, fullContent.length());
+            // 刷新缓冲区中剩余的内容
+            if (chunkBuffer.length() > 0) {
+                callback.onChunk(chunkBuffer.toString());
+            }
             callback.onComplete(fullContent.toString());
 
         } catch (Exception e) {
             log.error("流式调用AI API失败", e);
-            callback.onError("AI调用失败: " + e.getMessage());
+            callback.onError("AI调用失败，请检查网络连接和AI配置");
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
         }
+    }
+
+    /**
+     * 判断是否应该刷新攒批缓冲区
+     * 条件：缓冲区字符数达到阈值，或距离上次发送超过最大间隔时间
+     */
+    private boolean shouldFlushBuffer(StringBuilder buffer, long lastFlushTime) {
+        if (buffer.length() == 0) {
+            return false;
+        }
+        if (buffer.length() >= STREAM_BUFFER_MIN_CHARS) {
+            return true;
+        }
+        long elapsed = System.currentTimeMillis() - lastFlushTime;
+        return elapsed >= STREAM_BUFFER_MAX_INTERVAL_MS;
     }
 
 }

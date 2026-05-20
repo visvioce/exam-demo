@@ -3,9 +3,11 @@ package com.southcollege.exam.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.TableLogic;
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -16,20 +18,6 @@ import java.util.List;
  * 题目实体
  * <p>
  * 表示一道考试题目，支持5种题型：单选题、多选题、判断题、填空题、简答题。
- * </p>
- * <p>
- * <b>数据格式规范：</b>
- * <ul>
- *   <li>{@code correctAnswer} 根据题型不同，存储格式不同：
- *     <ul>
- *       <li>单选/判断：String（如 "A"、"正确"）</li>
- *       <li>多选/填空多空：List&lt;String&gt;（JSON数组）</li>
- *       <li>填空单空：String</li>
- *       <li>简答：String</li>
- *     </ul>
- *   </li>
- *   <li>详见 {@code docs/数据格式规范.md}</li>
- * </ul>
  * </p>
  *
  * @see com.southcollege.exam.service.QuestionService
@@ -43,22 +31,22 @@ public class Question {
     private Long id;
 
     /** 题目内容（支持HTML富文本） */
+    @NotBlank(message = "题目内容不能为空")
     private String content;
 
     /**
      * 题目类型
      * @see com.southcollege.exam.enums.QuestionTypeEnum
      */
+    @NotNull(message = "题目类型不能为空")
     private String type;
 
     /**
      * 难度等级
-     * @see com.southcollege.exam.enums.QuestionTypeEnum 中定义的难度枚举
+     * 可选值：EASY(简单) / MEDIUM(中等) / HARD(困难)
      */
+    @NotNull(message = "题目难度不能为空")
     private String difficulty;
-
-    /** 题目分值 */
-    private BigDecimal score;
 
     /** 创建该题目的教师ID */
     private Long teacherId;
@@ -68,10 +56,6 @@ public class Question {
 
     /** 答案解析（支持HTML，学生端回顾时展示） */
     private String explanation;
-
-    /** 逻辑删除标记 */
-    @TableLogic
-    private Integer deleted;
 
     // ========== JSON 字段（使用 JacksonTypeHandler 序列化）==========
 
@@ -101,6 +85,9 @@ public class Question {
      */
     @TableField(typeHandler = JacksonTypeHandler.class)
     private List<ScoringCriterion> scoringCriteria;
+
+    @TableLogic
+    private Integer deleted = 0;
 
     /**
      * 选项内部类

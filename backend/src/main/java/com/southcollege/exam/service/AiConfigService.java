@@ -1,11 +1,13 @@
 package com.southcollege.exam.service;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.southcollege.exam.dto.response.AiConfigResponse;
 import com.southcollege.exam.entity.AiConfig;
 import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.mapper.AiConfigMapper;
 import com.southcollege.exam.utils.AesUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -235,6 +237,11 @@ public class AiConfigService extends ServiceImpl<AiConfigMapper, AiConfig> {
             return "API 地址不能超过500个字符";
         }
 
+        String ssrfError = checkSsrf(aiConfig.getBaseUrl());
+        if (ssrfError != null) {
+            return ssrfError;
+        }
+
         if (aiConfig.getApiKey() == null || aiConfig.getApiKey().trim().isEmpty()) {
             return "API Key 不能为空";
         }
@@ -277,7 +284,9 @@ public class AiConfigService extends ServiceImpl<AiConfigMapper, AiConfig> {
     }
 
     /**
-     * 解密API Key，如果已是明文或解密失败则保持原值
+     * 解密API Key
+     * <p>如果解密失败但 key 看起来是已加密的（十六进制长串），说明密钥不匹配，
+     * 抛出明确错误提示用户重新配置。如果 key 看起来是明文（短串），则保留原值。</p>
      */
     private void decryptApiKey(AiConfig config) {
         if (config.getApiKey() == null || config.getApiKey().isEmpty()) {
@@ -295,8 +304,13 @@ public class AiConfigService extends ServiceImpl<AiConfigMapper, AiConfig> {
                 log.warn("解密后的 API Key 格式异常，可能使用了不同的加密密钥，保持原值，configId={}", config.getId());
             }
         } catch (Exception e) {
-            log.warn("API Key 解密失败，可能是明文存储，保持原值，configId={}, error={}",
-                    config.getId(), e.getMessage());
+            // 如果 key 是十六进制加密格式但解密失败，说明 AES 密钥不匹配
+            if (isEncryptedApiKey(apiKey)) {
+                log.error("API Key 解密失败（AES密钥可能已变更），configId={}", config.getId(), e);
+                config.setApiKey(null); // 清空，让用户重新输入
+            } else {
+                log.debug("API Key 解密失败，可能是明文存储，保持原值，configId={}", config.getId());
+            }
         }
     }
 
@@ -329,5 +343,104 @@ public class AiConfigService extends ServiceImpl<AiConfigMapper, AiConfig> {
             return false;
         }
         return apiKey.matches("^[0-9a-fA-F]+$");
+    }
+
+    public AiConfigResponse convertToResponse(AiConfig entity) {
+        if (entity == null) return null;
+        AiConfigResponse response = new AiConfigResponse();
+        BeanUtils.copyProperties(entity, response);
+        response.setApiKey(maskApiKey(entity.getApiKey()));
+        return response;
+    }
+
+    public List<AiConfigResponse> convertToResponses(List<AiConfig> entities) {
+        if (entities == null || entities.isEmpty()) return List.of();
+        return entities.stream().map(this::convertToResponse).toList();
+    }
+
+    /**
+     * SSRF 防护：检查 baseUrl 是否指向内部/私有地址
+     */
+    private String checkSsrf(String baseUrl) {
+        try {
+            java.net.URL url = new java.net.URL(baseUrl);
+            String host = url.getHost().toLowerCase();
+
+            if (host.isEmpty()) {
+                return "API 地址格式不正确";
+            }
+
+            if ("localhost".equals(host) || "127.0.0.1".equals(host) || "0.0.0.0".equals(host) || "[::1]".equals(host)) {
+                return "不允许使用本地回环地址";
+            }
+
+            if (isPrivateIpPrefix(host)) {
+                return "不允许使用内网地址";
+            }
+
+            if (host.equals("169.254.169.254")) {
+                return "不允许使用云元数据地址";
+            }
+
+            if (host.contains("metadata") && host.contains("internal")) {
+                return "不允许使用内部元数据服务地址";
+            }
+
+            try {
+                java.net.InetAddress resolved = java.net.InetAddress.getByName(host);
+                String resolvedIp = resolved.getHostAddress();
+                if (isPrivateIp(resolvedIp)) {
+                    return "不允许使用内网地址（DNS解析后指向私有IP）";
+                }
+                if ("127.0.0.1".equals(resolvedIp) || "0.0.0.0".equals(resolvedIp)
+                        || "::1".equals(resolvedIp) || resolvedIp.startsWith("0:0:0:0:0:0:0:1")) {
+                    return "不允许使用本地回环地址（DNS解析后指向回环地址）";
+                }
+                if ("169.254.169.254".equals(resolvedIp)) {
+                    return "不允许使用云元数据地址（DNS解析后指向元数据服务）";
+                }
+            } catch (java.net.UnknownHostException e) {
+                return "API 地址无法解析，请检查域名是否正确";
+            }
+        } catch (java.net.MalformedURLException e) {
+            return "API 地址格式不正确";
+        }
+        return null;
+    }
+
+    private boolean isPrivateIpPrefix(String host) {
+        if (host.startsWith("10.")) return true;
+        if (host.startsWith("192.168.")) return true;
+        if (host.startsWith("172.")) {
+            String[] parts = host.split("\\.");
+            if (parts.length >= 2) {
+                try {
+                    int second = Integer.parseInt(parts[1]);
+                    if (second >= 16 && second <= 31) return true;
+                } catch (NumberFormatException ignored) {
+                    log.warn("172.x 网段第二段解析失败，非预期格式: {}", parts[1]);
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isPrivateIp(String ip) {
+        if (ip == null) return false;
+        if (ip.startsWith("10.")) return true;
+        if (ip.startsWith("192.168.")) return true;
+        if (ip.startsWith("172.")) {
+            String[] parts = ip.split("\\.");
+            if (parts.length >= 2) {
+                try {
+                    int second = Integer.parseInt(parts[1]);
+                    if (second >= 16 && second <= 31) return true;
+                } catch (NumberFormatException ignored) {
+                    log.warn("IP 172.x 网段第二段解析失败，非预期格式: {}", parts[1]);
+                }
+            }
+        }
+        if (ip.startsWith("169.254.")) return true;
+        return false;
     }
 }

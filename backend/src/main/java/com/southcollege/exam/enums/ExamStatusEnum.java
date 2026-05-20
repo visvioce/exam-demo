@@ -10,8 +10,7 @@ public enum ExamStatusEnum {
     DRAFT("DRAFT", "草稿"),
     PUBLISHED("PUBLISHED", "已发布"),
     STARTED("STARTED", "进行中"),
-    ENDED("ENDED", "已结束"),
-    CANCELLED("CANCELLED", "已取消");
+    ENDED("ENDED", "已结束");
 
     private final String code;
     private final String description;
