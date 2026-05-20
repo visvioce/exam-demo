@@ -64,7 +64,6 @@
 
     <!-- 主内容区 -->
     <el-container class="content-container">
-      <!-- 顶部导航 -->
       <el-header class="header">
         <div class="header-left">
           <el-breadcrumb separator="/">
@@ -95,7 +94,9 @@
       <!-- 内容区 -->
       <el-main class="main-content" :class="{ 'exam-take-mode': isExamTakePage }">
         <router-view v-slot="{ Component }">
-          <component :is="Component" :key="route.path" />
+          <Transition name="page-fade" mode="out-in">
+            <component :is="Component" :key="route.path" />
+          </Transition>
         </router-view>
       </el-main>
     </el-container>
@@ -389,6 +390,17 @@ async function handleCommand(command: string) {
   &.exam-take-mode {
     padding: 0;
   }
+}
+
+// ===== 页面过渡动画 =====
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity $motion-duration-base $motion-ease-standard;
+}
+
+.page-fade-enter-from,
+.page-fade-leave-to {
+  opacity: 0;
 }
 
 // ===== 响应式设计 =====

@@ -5,11 +5,8 @@ export const paperApi = {
   // 分页查询试卷
   page(
     params: PageRequest & {
-      courseId?: number
       teacherId?: number
       keyword?: string
-      type?: string
-      status?: string
     }
   ) {
     return request.get<PageResult<Paper>>('/papers/page', { params })
@@ -20,29 +17,19 @@ export const paperApi = {
     return request.get<Paper[]>('/papers')
   },
 
-  // 获取课程的试卷
-  getByCourseId(courseId: number) {
-    return request.get<Paper[]>(`/papers/course/${courseId}`)
-  },
-
   // 获取试卷详情
   getById(id: number) {
     return request.get<Paper>(`/papers/${id}`)
   },
 
-  // 获取考试用试卷信息（仅教师/管理员）
-  getForExam(paperId: number) {
-    return request.get<Paper>(`/papers/exam/${paperId}`)
-  },
-
   // 创建试卷
   create(data: Partial<Paper>) {
-    return request.post<Paper>('/papers', data)
+    return request.post<boolean>('/papers', data)
   },
 
   // 更新试卷
   update(id: number, data: Partial<Paper>) {
-    return request.put<Paper>(`/papers/${id}`, data)
+    return request.put<boolean>(`/papers/${id}`, data)
   },
 
   // 删除试卷

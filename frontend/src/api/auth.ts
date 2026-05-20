@@ -25,5 +25,10 @@ export const authApi = {
   // 更新个人资料
   updateProfile(data: { nickname: string; avatar?: string }) {
     return request.put<UserResponse>('/auth/profile', data)
+  },
+
+  // Token 续期
+  refreshToken() {
+    return request.post<LoginResponse>('/auth/refresh')
   }
 }

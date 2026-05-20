@@ -1,18 +1,17 @@
 <template>
   <IconActionButton
-    :icon="Close"
+    :icon="Delete"
     :tooltip="tooltip"
     :aria-label="ariaLabel"
     :show-tooltip="showTooltip"
     :stop-propagation="stopPropagation"
-    :button-class="buttonClass"
-    type="danger"
+    :button-class="`delete-btn ${buttonClass}`.trim()"
     @click="(event) => emit('click', event)"
   />
 </template>
 
 <script setup lang="ts">
-import { Close } from '@element-plus/icons-vue'
+import { Delete } from '@element-plus/icons-vue'
 import IconActionButton from './IconActionButton.vue'
 
 withDefaults(defineProps<{
@@ -33,3 +32,13 @@ const emit = defineEmits<{
   (e: 'click', event: MouseEvent): void
 }>()
 </script>
+
+<style scoped lang="scss">
+.delete-btn {
+  color: #1A1A1A;
+
+  &:hover {
+    color: #000000;
+  }
+}
+</style>

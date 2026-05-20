@@ -15,6 +15,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -67,17 +70,15 @@ class ExamServiceTest {
 
     @Test
     void testStartExam_Success() {
-        // Given
         testExam.setCourseId(1L);
+        testExam.setStatus(ExamStatusEnum.STARTED.getCode());
         doReturn(testExam).when(examService).getById(1L);
         when(courseService.isCourseMember(1L, 1L)).thenReturn(true);
         when(examSessionService.getByExamIdAndStudentId(1L, 1L)).thenReturn(null);
         when(examSessionService.save(any(ExamSession.class))).thenReturn(true);
 
-        // When
         ExamSession session = examService.startExam(1L, 1L);
 
-        // Then
         assertNotNull(session);
         assertEquals(1L, session.getExamId());
         assertEquals(1L, session.getStudentId());
@@ -85,10 +86,8 @@ class ExamServiceTest {
 
     @Test
     void testStartExam_ExamNotFound() {
-        // Given
         doReturn(null).when(examService).getById(999L);
 
-        // When & Then
         assertThrows(BusinessException.class, () -> {
             examService.startExam(999L, 1L);
         });
@@ -96,11 +95,9 @@ class ExamServiceTest {
 
     @Test
     void testStartExam_ExamNotPublished() {
-        // Given
         testExam.setStatus(ExamStatusEnum.DRAFT.getCode());
         doReturn(testExam).when(examService).getById(1L);
 
-        // When & Then
         assertThrows(BusinessException.class, () -> {
             examService.startExam(1L, 1L);
         });
@@ -108,13 +105,12 @@ class ExamServiceTest {
 
     @Test
     void testStartExam_ExamNotStarted() {
-        // Given
         testExam.setCourseId(1L);
+        testExam.setStatus(ExamStatusEnum.PUBLISHED.getCode());
         testExam.setStartedAt(LocalDateTime.now().plusHours(1));
+        testExam.setEndedAt(LocalDateTime.now().plusHours(2));
         doReturn(testExam).when(examService).getById(1L);
-        when(courseService.isCourseMember(1L, 1L)).thenReturn(true);
 
-        // When & Then
         assertThrows(BusinessException.class, () -> {
             examService.startExam(1L, 1L);
         });
@@ -122,11 +118,9 @@ class ExamServiceTest {
 
     @Test
     void testStartExam_ExamEnded() {
-        // Given
-        testExam.setEndedAt(LocalDateTime.now().minusHours(1));
+        testExam.setStatus(ExamStatusEnum.ENDED.getCode());
         doReturn(testExam).when(examService).getById(1L);
 
-        // When & Then
         assertThrows(BusinessException.class, () -> {
             examService.startExam(1L, 1L);
         });
@@ -134,14 +128,13 @@ class ExamServiceTest {
 
     @Test
     void testStartExam_AlreadySubmitted() {
-        // Given
         testExam.setCourseId(1L);
+        testExam.setStatus(ExamStatusEnum.STARTED.getCode());
         testSession.setStatus(ExamSessionStatusEnum.SUBMITTED.getCode());
         doReturn(testExam).when(examService).getById(1L);
         when(courseService.isCourseMember(1L, 1L)).thenReturn(true);
         when(examSessionService.getByExamIdAndStudentId(1L, 1L)).thenReturn(testSession);
 
-        // When & Then
         assertThrows(BusinessException.class, () -> {
             examService.startExam(1L, 1L);
         });
@@ -149,16 +142,14 @@ class ExamServiceTest {
 
     @Test
     void testStartExam_ContinueExam() {
-        // Given
         testExam.setCourseId(1L);
+        testExam.setStatus(ExamStatusEnum.STARTED.getCode());
         doReturn(testExam).when(examService).getById(1L);
         when(courseService.isCourseMember(1L, 1L)).thenReturn(true);
         when(examSessionService.getByExamIdAndStudentId(1L, 1L)).thenReturn(testSession);
 
-        // When
         ExamSession session = examService.startExam(1L, 1L);
 
-        // Then
         assertNotNull(session);
         assertEquals(testSession.getId(), session.getId());
     }
@@ -175,12 +166,11 @@ class ExamServiceTest {
     }
 
     @Test
-    void testCheckOwnership_AdminCanAccess() {
-        // Given - admin can access any exam without checking ownership
+    void testCheckOwnership_AdminNotOwnerThrowsException() {
         testExam.setTeacherId(999L);
+        doReturn(testExam).when(examService).getById(1L);
 
-        // When & Then - admin can access any exam (no getById call needed for admin)
-        assertDoesNotThrow(() -> {
+        assertThrows(BusinessException.class, () -> {
             examService.checkOwnership(1L, 1L, "ADMIN");
         });
     }
@@ -210,30 +200,21 @@ class ExamServiceTest {
 
     @Test
     void testPublishExam_Success() {
-        // Given
         testExam.setStatus(ExamStatusEnum.DRAFT.getCode());
+        testExam.setStartedAt(LocalDateTime.now().plusDays(1));
+        testExam.setEndedAt(LocalDateTime.now().plusDays(1).plusHours(2));
+        Exam.ExamQuestion eq = new Exam.ExamQuestion();
+        eq.setType("SINGLE_CHOICE");
+        testExam.setExamPaper(new Exam.ExamPaperData(
+                List.of(eq), Map.of("SINGLE_CHOICE", BigDecimal.TEN)));
+        testExam.setTotalScore(BigDecimal.TEN);
         doReturn(testExam).when(examService).getById(1L);
         doReturn(true).when(examService).updateById(any(Exam.class));
 
-        // When
-        examService.publishExam(1L);
+        examService.publishExam(1L, 1L, "TEACHER");
 
-        // Then
         assertEquals(ExamStatusEnum.PUBLISHED.getCode(), testExam.getStatus());
         verify(examService).updateById(any(Exam.class));
     }
 
-    @Test
-    void testCancelExam_Success() {
-        // Given
-        doReturn(testExam).when(examService).getById(1L);
-        doReturn(true).when(examService).updateById(any(Exam.class));
-
-        // When
-        examService.cancelExam(1L);
-
-        // Then
-        assertEquals(ExamStatusEnum.CANCELLED.getCode(), testExam.getStatus());
-        verify(examService).updateById(any(Exam.class));
-    }
 }

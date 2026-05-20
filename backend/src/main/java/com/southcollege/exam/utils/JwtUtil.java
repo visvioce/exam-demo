@@ -108,6 +108,39 @@ public class JwtUtil {
         return validateTokenWithResult(token).isValid();
     }
 
+    public String refreshToken(String token) {
+        if (token == null || token.trim().isEmpty()) {
+            throw new IllegalArgumentException("Token 不能为空");
+        }
+
+        try {
+            Claims claims = parseToken(token);
+            String refreshedToken = generateToken(
+                    Long.valueOf(claims.getSubject()),
+                    claims.get("username", String.class),
+                    claims.get("role", String.class)
+            );
+            return refreshedToken;
+        } catch (ExpiredJwtException e) {
+            Claims claims = e.getClaims();
+            Date expiration = claims.getExpiration();
+            long expiredDuration = System.currentTimeMillis() - expiration.getTime();
+
+            if (expiredDuration > 604800000) {
+                throw new IllegalArgumentException("Token 过期超过7天，无法刷新，请重新登录");
+            }
+
+            String refreshedToken = generateToken(
+                    Long.valueOf(claims.getSubject()),
+                    claims.get("username", String.class),
+                    claims.get("role", String.class)
+            );
+            return refreshedToken;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Token 无效，无法刷新", e);
+        }
+    }
+
     /**
      * 验证 Token（详细版本，返回验证结果）
      */

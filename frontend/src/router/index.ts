@@ -122,7 +122,7 @@ const routes: RouteRecordRaw[] = [
         path: 'aiconfig',
         name: 'AiConfigList',
         component: () => import('@/views/aiconfig/AiConfigList.vue'),
-        meta: { requiresAuth: true, title: 'AI配置' }
+        meta: { requiresAuth: true, roles: ['ADMIN', 'TEACHER'], title: 'AI配置' }
       },
       {
         path: 'profile',

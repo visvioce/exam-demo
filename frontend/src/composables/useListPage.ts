@@ -5,6 +5,7 @@ export interface UseListPageOptions<T> {
   fetchFn: (params: PageRequest) => Promise<{ data: PageResult<T> }>
   defaultPageSize?: number
   immediate?: boolean
+  onError?: (error: unknown) => void
 }
 
 export function useListPage<T>(options: UseListPageOptions<T>) {
@@ -24,7 +25,10 @@ export function useListPage<T>(options: UseListPageOptions<T>) {
   const hasData = computed(() => data.value.length > 0)
   const isEmpty = computed(() => !loading.value && data.value.length === 0)
 
+  let latestRequestId = 0
+
   async function loadData() {
+    const requestId = ++latestRequestId
     loading.value = true
     try {
       const params: PageRequest = {
@@ -33,14 +37,19 @@ export function useListPage<T>(options: UseListPageOptions<T>) {
         ...searchParams
       }
       const response = await fetchFn(params)
+      if (requestId !== latestRequestId) return
       data.value = response.data.records
       total.value = response.data.total
     } catch (error) {
-      console.error('Failed to load data:', error)
-      data.value = []
-      total.value = 0
+      if (requestId === latestRequestId) {
+        options.onError?.(error)
+        data.value = []
+        total.value = 0
+      }
     } finally {
-      loading.value = false
+      if (requestId === latestRequestId) {
+        loading.value = false
+      }
     }
   }
 

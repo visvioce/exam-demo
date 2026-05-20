@@ -2,6 +2,7 @@ package com.southcollege.exam.utils;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Arrays;
 import java.util.List;
@@ -19,6 +20,7 @@ import java.util.List;
  * 
  * @see /docs/数据格式规范.md
  */
+@Slf4j
 public class JsonUtil {
 
     /**
@@ -46,8 +48,8 @@ public class JsonUtil {
 				.map(item -> item == null ? "" : item.toString())
 				.filter(StrUtil::isNotBlank)
 				.toList();
-            } catch (Exception ignored) {
-                // 转换失败，继续尝试其他方式
+            } catch (Exception e) {
+                log.debug("JSON处理异常", e);
             }
         }
 
@@ -67,8 +69,8 @@ public class JsonUtil {
 			List<String> arr = JSONUtil.toList(value, String.class);
 			return arr == null ? List.of() : arr.stream().filter(StrUtil::isNotBlank).toList();
             }
-        } catch (Exception ignored) {
-            // JSON 解析失败走分隔符降级
+        } catch (Exception e) {
+            log.debug("JSON处理异常", e);
         }
 
         // 情况3：分隔符分隔的字符串 - 增加黑名单检查，避免误拆分合法内容
@@ -83,7 +85,8 @@ public class JsonUtil {
                 String normalized = value.replaceAll("[,，]", "");
                 new java.math.BigDecimal(normalized);
                 isNumeric = true;
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.debug("JSON处理异常", e);
             }
             
             // 黑名单：如果包含引号，可能是包含分隔符的完整字符串
@@ -135,7 +138,8 @@ public class JsonUtil {
                     List<String> arr = JSONUtil.toList(str, String.class);
 		return arr != null && !arr.isEmpty() && arr.stream().anyMatch(StrUtil::isNotBlank);
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.debug("JSON处理异常", e);
             }
             
             // 普通字符串

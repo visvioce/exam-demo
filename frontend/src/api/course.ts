@@ -1,5 +1,5 @@
 import request from '@/utils/request'
-import type { Course, PageRequest, PageResult } from '@/types'
+import type { Course, PageRequest, PageResult, UserResponse } from '@/types'
 
 export const courseApi = {
   // 分页查询课程
@@ -29,12 +29,12 @@ export const courseApi = {
 
   // 创建课程
   create(data: Partial<Course>) {
-    return request.post<Course>('/courses', data)
+    return request.post<boolean>('/courses', data)
   },
 
   // 更新课程
   update(id: number, data: Partial<Course>) {
-    return request.put<Course>(`/courses/${id}`, data)
+    return request.put<boolean>(`/courses/${id}`, data)
   },
 
   // 删除课程
@@ -59,6 +59,6 @@ export const courseApi = {
 
   // 获取课程成员
   getMembers(id: number) {
-    return request.get(`/courses/${id}/members`)
+    return request.get<UserResponse[]>(`/courses/${id}/members`)
   }
 }

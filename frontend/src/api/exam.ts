@@ -13,7 +13,10 @@
 import request from "@/utils/request";
 import type {
   Exam,
+  ExamCreateData,
+  ExamUpdateData,
   ExamSession,
+  ExamQuestion,
   PageRequest,
   PageResult,
   QuestionForExam,
@@ -64,20 +67,22 @@ export const examApi = {
 
   /**
    * 获取已发布的考试列表
-   * @returns 已发布的考试列表
+   * @param params - 分页参数
+   * @returns 分页的已发布考试列表
    * @permission 学生
    */
-  getPublishedExams() {
-    return request.get<Exam[]>("/exams/published");
+  getPublishedExams(params: PageRequest = { current: 1, size: 100 }) {
+    return request.get<PageResult<Exam>>("/exams/published", { params });
   },
 
   /**
    * 获取当前登录学生的考试列表
-   * @returns 我的考试列表
+   * @param params - 分页参数
+   * @returns 分页的我的考试列表
    * @permission 学生
    */
-  getMyExams() {
-    return request.get<Exam[]>("/exams/my");
+  getMyExams(params: PageRequest = { current: 1, size: 100 }) {
+    return request.get<PageResult<Exam>>("/exams/my", { params });
   },
 
   /**
@@ -99,33 +104,19 @@ export const examApi = {
     return request.get<QuestionForExam[]>(`/exams/${id}/questions`);
   },
 
-  /**
-   * 获取考试的试卷信息
-   * @param id - 考试ID
-   * @returns 试卷信息
-   */
-  getPaper(id: number) {
-    return request.get<import("@/types").Paper>(`/exams/${id}/paper`);
-  },
-
-  /**
-   * 获取考试回顾所需的完整题目信息（包含正确答案和解析）
-   * @param id - 考试ID
-   * @returns 完整题目列表（含正确答案和解析）
-   * @permission 考试结束后或教师
-   */
+  // 获取考试回顾题目（含正确答案，考试结束后）
   getReviewQuestions(id: number) {
-    return request.get<import("@/types").Question[]>(`/exams/${id}/review-questions`);
+    return request.get<ExamQuestion[]>(`/exams/${id}/review`)
   },
 
   // 创建考试
-  create(data: Partial<Exam>) {
-    return request.post<Exam>("/exams", data);
+  create(data: ExamCreateData) {
+    return request.post<boolean>("/exams", data);
   },
 
   // 更新考试
-  update(id: number, data: Partial<Exam>) {
-    return request.put<Exam>(`/exams/${id}`, data);
+  update(id: number, data: ExamUpdateData) {
+    return request.put<boolean>(`/exams/${id}`, data);
   },
 
   // 删除考试
@@ -138,9 +129,9 @@ export const examApi = {
     return request.post(`/exams/${id}/publish`);
   },
 
-  // 取消考试
-  cancel(id: number) {
-    return request.post(`/exams/${id}/cancel`);
+  // 提前结束考试
+  end(id: number) {
+    return request.post(`/exams/${id}/end`);
   },
 
   // 开始考试
@@ -155,7 +146,7 @@ export const examApi = {
 
   // 自动保存答案
   autoSave(id: number, data: ExamAnswerSubmit[]) {
-    return request.put(`/exams/${id}/auto-save`, data);
+    return request.post(`/exams/${id}/auto-save`, data)
   },
 };
 
@@ -210,5 +201,15 @@ export const examSessionApi = {
   // 获取考试结果详情
   getExamResult(id: number) {
     return request.get<ExamResultResponse>(`/exam-sessions/${id}/result`);
+  },
+
+  // 获取待评分考试记录列表（教师/管理员）
+  getPendingGrading() {
+    return request.get<ExamSession[]>("/exam-sessions/pending-grading");
+  },
+
+  // 获取某考试的待评分记录（教师/管理员）
+  getPendingGradingByExamId(examId: number) {
+    return request.get<ExamSession[]>(`/exam-sessions/pending-grading/exam/${examId}`);
   },
 };

@@ -19,12 +19,12 @@ export const carouselApi = {
 
   // 创建轮播图
   create(data: Partial<Carousel>) {
-    return request.post<Carousel>('/carousels', data)
+    return request.post<boolean>('/carousels', data)
   },
 
   // 更新轮播图
   update(id: number, data: Partial<Carousel>) {
-    return request.put<Carousel>(`/carousels/${id}`, data)
+    return request.put<boolean>(`/carousels/${id}`, data)
   },
 
   // 删除轮播图

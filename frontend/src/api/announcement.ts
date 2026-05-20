@@ -19,12 +19,12 @@ export const announcementApi = {
 
   // 创建公告
   create(data: Partial<Announcement>) {
-    return request.post<Announcement>('/announcements', data)
+    return request.post<boolean>('/announcements', data)
   },
 
   // 更新公告
   update(id: number, data: Partial<Announcement>) {
-    return request.put<Announcement>(`/announcements/${id}`, data)
+    return request.put<boolean>(`/announcements/${id}`, data)
   },
 
   // 删除公告

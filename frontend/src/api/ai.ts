@@ -100,6 +100,12 @@ export const aiApi = {
     }).then(async response => {
       if (!response.ok) {
         clearTimeout_()
+        if (response.status === 401) {
+          const authStore = useAuthStore()
+          authStore.logout()
+          callbacks.onError?.('登录已过期，请重新登录')
+          return
+        }
         const errorData = await response.json().catch(() => ({ message: '请求失败' }))
         callbacks.onError?.(errorData.message || '请求失败')
         return

@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 /**
  * AES 加密工具类
@@ -19,14 +21,19 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class AesUtil {
 
-    @Value("${aes.secret:a1b2c3d4e5f6g7h8}")
+    @Value("${aes.secret:}")
     private String secretKey;
 
     private static volatile String staticSecretKey;
 
     @PostConstruct
     public void init() {
-        // 将密钥保存到静态变量供静态方法使用
+        if (secretKey == null || secretKey.isBlank()) {
+            throw new IllegalStateException(
+                "AES 密钥未配置！请在 .env 文件中设置 AES_SECRET=xxx 或通过环境变量设置。\n" +
+                "生成密钥示例: openssl rand -base64 32"
+            );
+        }
         staticSecretKey = secretKey;
     }
 
@@ -34,7 +41,11 @@ public class AesUtil {
      * 创建 AES 实例（线程安全，每次调用创建新实例）
      */
     private static AES createAes() {
-        byte[] key = padKey(staticSecretKey.getBytes(StandardCharsets.UTF_8));
+        String keyStr = staticSecretKey;
+        if (keyStr == null) {
+            throw new IllegalStateException("AES 密钥未初始化，请检查 aes.secret 配置是否正确加载");
+        }
+        byte[] key = padKey(keyStr.getBytes(StandardCharsets.UTF_8));
         return SecureUtil.aes(key);
     }
 
@@ -68,13 +79,14 @@ public class AesUtil {
      * 填充 key 到 16 字节
      */
     private static byte[] padKey(byte[] key) {
-        byte[] result = new byte[16];
-        int len = Math.min(key.length, 16);
-        System.arraycopy(key, 0, result, 0, len);
-        // 不足 16 字节用 0 填充
-        for (int i = len; i < 16; i++) {
-            result[i] = 0;
+        try {
+            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            byte[] hash = sha256.digest(key);
+            byte[] result = new byte[16];
+            System.arraycopy(hash, 0, result, 0, 16);
+            return result;
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 algorithm not available", e);
         }
-        return result;
     }
 }

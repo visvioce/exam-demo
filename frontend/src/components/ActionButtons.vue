@@ -15,23 +15,23 @@
       tooltip="编辑"
       show-tooltip
       aria-label="编辑"
-      type="primary"
+      button-class="edit-btn"
       @click="$emit('edit')"
     />
     <IconActionButton
       v-if="showDelete"
-      :icon="Close"
+      :icon="Delete"
       tooltip="删除"
       show-tooltip
       aria-label="删除"
-      type="danger"
+      button-class="delete-btn"
       @click="$emit('delete')"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { View, Edit, Close } from '@element-plus/icons-vue'
+import { View, Edit, Delete } from '@element-plus/icons-vue'
 import IconActionButton from './IconActionButton.vue'
 
 withDefaults(defineProps<{
@@ -61,10 +61,26 @@ defineEmits<{
 }
 
 .view-btn {
-  color: $text-tertiary;
+  color: $text-quaternary;
+
+  &:hover {
+    color: $text-tertiary;
+  }
+}
+
+.edit-btn {
+  color: $text-secondary;
 
   &:hover {
     color: $text-primary;
+  }
+}
+
+.delete-btn {
+  color: $text-primary;
+
+  &:hover {
+    color: $black;
   }
 }
 </style>

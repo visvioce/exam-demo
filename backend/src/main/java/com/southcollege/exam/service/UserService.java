@@ -12,7 +12,15 @@ import com.southcollege.exam.entity.User;
 import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.mapper.UserMapper;
 import com.southcollege.exam.enums.UserStatusEnum;
+import com.southcollege.exam.enums.RoleEnum;
+import com.southcollege.exam.entity.Announcement;
+import com.southcollege.exam.entity.Course;
+import com.southcollege.exam.entity.CourseMember;
+import com.southcollege.exam.entity.Exam;
 import com.southcollege.exam.entity.ExamSession;
+import com.southcollege.exam.entity.Paper;
+import com.southcollege.exam.entity.Question;
+import com.southcollege.exam.enums.ExamSessionStatusEnum;
 import com.southcollege.exam.utils.JwtUtil;
 import com.southcollege.exam.utils.PasswordUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -37,10 +45,26 @@ public class UserService extends ServiceImpl<UserMapper, User> {
 
     private final JwtUtil jwtUtil;
     private final ExamSessionService examSessionService;
+    private final CourseService courseService;
+    private final QuestionService questionService;
+    private final PaperService paperService;
+    private final ExamService examService;
+    private final AnnouncementService announcementService;
+    private final CourseMemberService courseMemberService;
 
-    public UserService(JwtUtil jwtUtil, @Lazy ExamSessionService examSessionService) {
+    public UserService(JwtUtil jwtUtil, @Lazy ExamSessionService examSessionService,
+                       @Lazy CourseService courseService, @Lazy QuestionService questionService,
+                       @Lazy PaperService paperService, @Lazy ExamService examService,
+                       @Lazy AnnouncementService announcementService,
+                       CourseMemberService courseMemberService) {
         this.jwtUtil = jwtUtil;
         this.examSessionService = examSessionService;
+        this.courseService = courseService;
+        this.questionService = questionService;
+        this.paperService = paperService;
+        this.examService = examService;
+        this.announcementService = announcementService;
+        this.courseMemberService = courseMemberService;
     }
 
     /**
@@ -91,12 +115,15 @@ public class UserService extends ServiceImpl<UserMapper, User> {
      * @return 登录响应，包含令牌和用户信息
      */
     public LoginResponse login(String username, String password) {
+        if (username == null || password == null) {
+            throw new BusinessException("用户名和密码不能为空");
+        }
         User user = getByUsername(username);
         if (user == null) {
-            throw new BusinessException("用户不存在");
+            throw new BusinessException("用户名或密码错误");
         }
         if (!PasswordUtil.matches(password, user.getPassword())) {
-            throw new BusinessException("密码错误");
+            throw new BusinessException("用户名或密码错误");
         }
         if (user.getStatus() != UserStatusEnum.ACTIVE) {
             throw new BusinessException("用户已被禁用");
@@ -112,6 +139,20 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         return response;
     }
 
+    public LoginResponse refreshToken(String token) {
+        String newToken = jwtUtil.refreshToken(token);
+        Long userId = jwtUtil.getUserIdFromToken(newToken);
+        User user = getById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+
+        LoginResponse response = new LoginResponse();
+        response.setToken(newToken);
+        response.setUser(convertToResponse(user));
+        return response;
+    }
+
     /**
      * 用户注册：校验用户名唯一性、加密密码后保存
      *
@@ -123,6 +164,12 @@ public class UserService extends ServiceImpl<UserMapper, User> {
      */
     @Transactional
     public UserResponse register(String username, String password, String nickname, String role) {
+        if (username == null || password == null || nickname == null || role == null) {
+            throw new BusinessException("注册信息不完整");
+        }
+        if (!RoleEnum.STUDENT.getCode().equals(role)) {
+            throw new BusinessException("注册仅支持学生角色");
+        }
         if (getByUsername(username) != null) {
             throw new BusinessException("用户名已存在");
         }
@@ -167,6 +214,12 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         if (!PasswordUtil.matches(oldPassword, user.getPassword())) {
             throw new BusinessException("原密码错误");
         }
+        if (newPassword == null) {
+            throw new BusinessException("新密码不能为空");
+        }
+        if (oldPassword.equals(newPassword)) {
+            throw new BusinessException("新密码不能与原密码相同");
+        }
 
         user.setPassword(PasswordUtil.encrypt(newPassword));
         updateById(user);
@@ -204,7 +257,11 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         if (getByUsername(user.getUsername()) != null) {
             throw new BusinessException("用户名已存在");
         }
-        
+
+        if (user.getPassword() == null || user.getPassword().trim().isEmpty()) {
+            throw new BusinessException("密码不能为空");
+        }
+
         user.setPassword(PasswordUtil.encrypt(user.getPassword()));
         
         if (user.getStatus() == null) {
@@ -217,7 +274,7 @@ public class UserService extends ServiceImpl<UserMapper, User> {
     }
     
     /**
-     * 更新用户（管理员功能）：保留原密码，不允许通过此接口修改密码
+     * 更新用户（管理员功能）：保留原密码，不允许通过此接口修改密码或角色
      *
      * @param user 用户信息
      * @return 是否成功
@@ -228,10 +285,29 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         if (existingUser == null) {
             throw new BusinessException("用户不存在");
         }
-        
-        user.setPassword(existingUser.getPassword());
-        
-        return updateById(user);
+
+        if (user.getUsername() != null && !user.getUsername().equals(existingUser.getUsername())) {
+            User duplicate = getByUsername(user.getUsername());
+            if (duplicate != null) {
+                throw new BusinessException("用户名已存在");
+            }
+            existingUser.setUsername(user.getUsername());
+        }
+
+        if (user.getNickname() != null) {
+            existingUser.setNickname(user.getNickname());
+        }
+        if (user.getAvatar() != null) {
+            existingUser.setAvatar(user.getAvatar());
+        }
+        if (user.getRole() != null) {
+            existingUser.setRole(user.getRole());
+        }
+        if (user.getStatus() != null) {
+            existingUser.setStatus(user.getStatus());
+        }
+
+        return updateById(existingUser);
     }
 
     /**
@@ -243,6 +319,9 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         }
         UserResponse response = new UserResponse();
         BeanUtils.copyProperties(user, response);
+        if (user.getStatus() != null) {
+            response.setStatus(user.getStatus().getCode());
+        }
         return response;
     }
 
@@ -272,6 +351,8 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         response.setSize(pageResult.getSize());
         response.setCurrent(pageResult.getCurrent());
         response.setPages(pageResult.getPages());
+        response.setHasNext(pageResult.getHasNext());
+        response.setHasPrevious(pageResult.getHasPrevious());
         return response;
     }
 
@@ -288,9 +369,9 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
 
         if (StringUtils.isNotBlank(keyword)) {
-            wrapper.like(User::getUsername, keyword)
-                   .or()
-                   .like(User::getNickname, keyword);
+            wrapper.and(w -> w.like(User::getUsername, keyword)
+                    .or()
+                    .like(User::getNickname, keyword));
         }
 
         if (StringUtils.isNotBlank(role)) {
@@ -298,10 +379,24 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         }
 
         if (StringUtils.isNotBlank(pageRequest.getOrderBy())) {
-            if (pageRequest.getAsc()) {
-                wrapper.orderByAsc(User::getId);
-            } else {
-                wrapper.orderByDesc(User::getId);
+            String orderBy = pageRequest.getOrderBy().toLowerCase();
+            boolean asc = Boolean.TRUE.equals(pageRequest.getAsc());
+            switch (orderBy) {
+                case "username" -> {
+                    if (asc) wrapper.orderByAsc(User::getUsername); else wrapper.orderByDesc(User::getUsername);
+                }
+                case "nickname" -> {
+                    if (asc) wrapper.orderByAsc(User::getNickname); else wrapper.orderByDesc(User::getNickname);
+                }
+                case "role" -> {
+                    if (asc) wrapper.orderByAsc(User::getRole); else wrapper.orderByDesc(User::getRole);
+                }
+                case "createdat", "created_at" -> {
+                    if (asc) wrapper.orderByAsc(User::getCreatedAt); else wrapper.orderByDesc(User::getCreatedAt);
+                }
+                default -> {
+                    if (asc) wrapper.orderByAsc(User::getId); else wrapper.orderByDesc(User::getId);
+                }
             }
         } else {
             wrapper.orderByDesc(User::getId);
@@ -312,12 +407,79 @@ public class UserService extends ServiceImpl<UserMapper, User> {
     }
 
     /**
+     * 级联软删除用户及其关联数据
+     */
+    @Transactional
+    public void deleteUser(Long userId) {
+        User user = getById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+
+        removeById(userId);
+
+        if (RoleEnum.TEACHER.getCode().equals(user.getRole())) {
+            List<Course> courses = courseService.lambdaQuery()
+                    .eq(Course::getTeacherId, userId)
+                    .list();
+            for (Course course : courses) {
+                courseMemberService.physicalDeleteByCourseId(course.getId());
+                courseService.removeById(course.getId());
+            }
+
+            questionService.lambdaUpdate()
+                    .eq(Question::getTeacherId, userId)
+                    .set(Question::getDeleted, 1)
+                    .update();
+
+            paperService.lambdaUpdate()
+                    .eq(Paper::getTeacherId, userId)
+                    .remove();
+
+            List<Exam> exams = examService.lambdaQuery()
+                    .eq(Exam::getTeacherId, userId)
+                    .list();
+            examService.lambdaUpdate()
+                    .eq(Exam::getTeacherId, userId)
+                    .set(Exam::getDeleted, 1)
+                    .update();
+            for (Exam exam : exams) {
+                examSessionService.lambdaUpdate()
+                        .eq(ExamSession::getExamId, exam.getId())
+                        .set(ExamSession::getDeleted, 1)
+                        .update();
+            }
+
+            announcementService.lambdaUpdate()
+                    .eq(Announcement::getPublisherId, userId)
+                    .set(Announcement::getDeleted, 1)
+                    .update();
+        }
+
+        if (RoleEnum.STUDENT.getCode().equals(user.getRole())) {
+            courseMemberService.physicalDeleteByStudentId(userId);
+
+            examSessionService.lambdaUpdate()
+                    .eq(ExamSession::getStudentId, userId)
+                    .set(ExamSession::getDeleted, 1)
+                    .update();
+        }
+    }
+
+    @Transactional
+    public void deleteUsers(List<Long> ids) {
+        for (Long id : ids) {
+            deleteUser(id);
+        }
+    }
+
+    /**
      * 检查用户是否可删除：存在进行中的考试时不允许删除
      */
     public void checkCanDelete(Long userId) {
         List<ExamSession> activeSessions = examSessionService.lambdaQuery()
                 .eq(ExamSession::getStudentId, userId)
-                .eq(ExamSession::getStatus, "IN_PROGRESS")
+                .eq(ExamSession::getStatus, ExamSessionStatusEnum.IN_PROGRESS.getCode())
                 .list();
         if (!activeSessions.isEmpty()) {
             throw new BusinessException("该用户有进行中的考试，无法删除");
@@ -333,7 +495,7 @@ public class UserService extends ServiceImpl<UserMapper, User> {
     public Set<Long> checkCanDeleteBatch(List<Long> userIds) {
         List<ExamSession> activeSessions = examSessionService.lambdaQuery()
                 .in(ExamSession::getStudentId, userIds)
-                .eq(ExamSession::getStatus, "IN_PROGRESS")
+                .eq(ExamSession::getStatus, ExamSessionStatusEnum.IN_PROGRESS.getCode())
                 .list();
         return activeSessions.stream()
                 .map(ExamSession::getStudentId)

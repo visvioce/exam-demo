@@ -83,7 +83,7 @@ export const aiConfigApi = {
 
   // 更新配置
   update(id: number, data: Partial<AiConfig>) {
-    return request.put<AiConfig>(`/ai-configs/${id}`, data)
+    return request.put<boolean>(`/ai-configs/${id}`, data)
   },
 
   // 删除配置

@@ -1,6 +1,7 @@
 package com.southcollege.exam.utils;
 
 import jakarta.servlet.http.HttpServletRequest;
+import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.exception.BusinessException;
 
 /**
@@ -91,20 +92,20 @@ public class SecurityUtil {
      * 检查是否是管理员
      */
     public static boolean isAdmin(HttpServletRequest request) {
-        return hasAnyRole(request, "ADMIN");
+        return hasAnyRole(request, RoleEnum.ADMIN.getCode());
     }
 
     /**
      * 检查是否是教师
      */
     public static boolean isTeacher(HttpServletRequest request) {
-        return hasAnyRole(request, "TEACHER");
+        return hasAnyRole(request, RoleEnum.TEACHER.getCode());
     }
 
     /**
      * 检查是否是学生
      */
     public static boolean isStudent(HttpServletRequest request) {
-        return hasAnyRole(request, "STUDENT");
+        return hasAnyRole(request, RoleEnum.STUDENT.getCode());
     }
 }

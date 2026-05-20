@@ -19,12 +19,12 @@ export const userApi = {
 
   // 创建用户
   create(data: Partial<User> & { password?: string }) {
-    return request.post<User>('/users', data)
+    return request.post<boolean>('/users', data)
   },
 
   // 更新用户
   update(id: number, data: Partial<User>) {
-    return request.put<User>(`/users/${id}`, data)
+    return request.put<boolean>(`/users/${id}`, data)
   },
 
   // 删除用户
