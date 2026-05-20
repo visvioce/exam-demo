@@ -2,6 +2,7 @@ package com.southcollege.exam.dto.request;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 /**
@@ -26,6 +27,7 @@ public class PageRequest {
     /**
      * 排序字段
      */
+    @Pattern(regexp = "^[a-zA-Z_]+$", message = "排序字段只能包含字母和下划线")
     private String orderBy;
 
     /**

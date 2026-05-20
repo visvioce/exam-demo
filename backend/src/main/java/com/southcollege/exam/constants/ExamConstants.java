@@ -30,15 +30,6 @@ public final class ExamConstants {
     public static final int DEFAULT_PASS_SCORE = 60;
     
     /**
-     * 题型代码
-     */
-    public static final String QUESTION_TYPE_SINGLE_CHOICE = "SINGLE_CHOICE";
-    public static final String QUESTION_TYPE_MULTIPLE_CHOICE = "MULTIPLE_CHOICE";
-    public static final String QUESTION_TYPE_TRUE_FALSE = "TRUE_FALSE";
-    public static final String QUESTION_TYPE_FILL_BLANK = "FILL_BLANK";
-    public static final String QUESTION_TYPE_ESSAY = "ESSAY";
-    
-    /**
      * 判断题答案
      */
     public static final String ANSWER_TRUE = "正确";

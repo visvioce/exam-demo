@@ -1,7 +1,9 @@
 package com.southcollege.exam.controller;
 
 import com.southcollege.exam.annotation.RequireRole;
+import com.southcollege.exam.dto.request.CourseSaveRequest;
 import com.southcollege.exam.dto.request.PageRequest;
+import com.southcollege.exam.dto.response.CourseResponse;
 import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.dto.response.UserResponse;
@@ -40,7 +42,7 @@ public class CourseController {
     @GetMapping("/page")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
     @Operation(summary = "分页查询课程", description = "管理员和教师可访问，教师只能查看自己创建的课程")
-    public Result<PageResult<Course>> page(
+    public Result<PageResult<CourseResponse>> page(
             @Valid PageRequest pageRequest,
             @Parameter(description = "教师ID") @RequestParam(required = false) Long teacherId,
             @Parameter(description = "课程状态") @RequestParam(required = false) String status,
@@ -48,52 +50,66 @@ public class CourseController {
             HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
-        return Result.success(courseService.page(pageRequest, teacherId, status, keyword, userId, userRole));
+        return Result.success(courseService.convertToPageResult(
+                courseService.page(pageRequest, teacherId, status, keyword, userId, userRole)));
     }
 
     @GetMapping
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
     @Operation(summary = "获取全部课程", description = "不建议使用，数据量大时会有性能问题")
-    public Result<List<Course>> list(HttpServletRequest request) {
+    public Result<List<CourseResponse>> list(HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            return Result.success(courseService.listWithTeacherNames());
-        }
-        return Result.success(courseService.getByTeacherId(userId));
+        return Result.success(courseService.convertToResponses(courseService.getByTeacherId(userId)));
     }
 
     @GetMapping("/active")
-    public Result<List<Course>> getActiveCourses() {
-        return Result.success(courseService.getActiveCourses());
+    public Result<List<CourseResponse>> getActiveCourses() {
+        return Result.success(courseService.convertToResponses(
+                courseService.getActiveCourses()));
     }
 
     @GetMapping("/my")
-    public Result<List<Course>> getMyCourses(HttpServletRequest request) {
+    @RequireRole(RoleEnum.STUDENT)
+    public Result<List<CourseResponse>> getMyCourses(HttpServletRequest request) {
         Long studentId = SecurityUtil.getCurrentUserId(request);
-        return Result.success(courseService.getMyCourses(studentId));
+        return Result.success(courseService.convertToResponses(
+                courseService.getMyCourses(studentId)));
     }
 
     @GetMapping("/{id}")
-    public Result<Course> getById(@PathVariable Long id, HttpServletRequest request) {
+    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER, RoleEnum.STUDENT})
+    public Result<CourseResponse> getById(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
-        return Result.success(courseService.getByIdWithPermission(id, userId, userRole));
+        return Result.success(courseService.convertToResponse(
+                courseService.getByIdWithPermission(id, userId, userRole)));
     }
 
     @PostMapping
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    public Result<Boolean> save(@RequestBody Course course, HttpServletRequest request) {
+    public Result<Boolean> save(@Valid @RequestBody CourseSaveRequest courseSaveRequest, HttpServletRequest request) {
         Long teacherId = SecurityUtil.getCurrentUserId(request);
+        Course course = new Course();
+        course.setName(courseSaveRequest.getName());
+        course.setCode(courseSaveRequest.getCode());
+        course.setDescription(courseSaveRequest.getDescription());
+        course.setCoverUrl(courseSaveRequest.getCoverUrl());
         course.setTeacherId(teacherId);
+        course.setCredits(courseSaveRequest.getCredits() != null ? courseSaveRequest.getCredits() : new java.math.BigDecimal("1.0"));
+        course.setStatus("ACTIVE");
         return Result.success(courseService.save(course));
     }
 
     @PutMapping("/{id}")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    public Result<Boolean> update(@PathVariable Long id, @RequestBody Course course, HttpServletRequest request) {
+    public Result<Boolean> update(@PathVariable Long id, @Valid @RequestBody CourseSaveRequest courseSaveRequest, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
+        Course course = new Course();
+        course.setName(courseSaveRequest.getName());
+        course.setCode(courseSaveRequest.getCode());
+        course.setDescription(courseSaveRequest.getDescription());
+        course.setCoverUrl(courseSaveRequest.getCoverUrl());
         return Result.success(courseService.updateCourse(id, course, userId, userRole));
     }
 
@@ -103,8 +119,8 @@ public class CourseController {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
         courseService.checkOwnership(id, userId, userRole);
-        courseService.checkCanDelete(id);
-        return Result.success(courseService.removeById(id));
+        courseService.deleteCourse(id);
+        return Result.success(true);
     }
 
     @PostMapping("/{id}/join")
@@ -132,6 +148,7 @@ public class CourseController {
     }
 
     @GetMapping("/{id}/members")
+    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER, RoleEnum.STUDENT})
     public Result<List<UserResponse>> getCourseMembers(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);

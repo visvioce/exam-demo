@@ -34,8 +34,8 @@ public class AiQuestionController {
     @PostMapping("/generate-questions")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
     public Result<GeneratedQuestionResponse> generateQuestions(@Valid @RequestBody GenerateQuestionRequest request,
-                                                                HttpServletRequest httpRequest) {
-        Long userId = SecurityUtil.getCurrentUserId(httpRequest);
+                                                                HttpServletRequest servletRequest) {
+        Long userId = SecurityUtil.getCurrentUserId(servletRequest);
         GeneratedQuestionResponse response = aiQuestionService.generateQuestions(
                 userId,
                 request.getSubject(),
@@ -51,8 +51,8 @@ public class AiQuestionController {
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
     @Operation(summary = "流式生成题目", description = "使用SSE实时推送AI生成的内容")
     public SseEmitter generateQuestionsStream(@Valid @RequestBody GenerateQuestionRequest request,
-                                               HttpServletRequest httpRequest) {
-        Long userId = SecurityUtil.getCurrentUserId(httpRequest);
+                                               HttpServletRequest servletRequest) {
+        Long userId = SecurityUtil.getCurrentUserId(servletRequest);
         return aiQuestionService.generateQuestionsStream(
                 userId,
                 request.getSubject(),

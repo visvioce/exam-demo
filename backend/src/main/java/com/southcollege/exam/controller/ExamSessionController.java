@@ -4,6 +4,7 @@ import com.southcollege.exam.annotation.RequireRole;
 import com.southcollege.exam.dto.request.GradeSubjectiveRequest;
 import com.southcollege.exam.dto.request.PageRequest;
 import com.southcollege.exam.dto.response.ExamResultResponse;
+import com.southcollege.exam.dto.response.ExamSessionResponse;
 import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.entity.Exam;
@@ -16,6 +17,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -40,24 +42,18 @@ public class ExamSessionController {
 
     @GetMapping
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    public Result<List<ExamSession>> list(HttpServletRequest request) {
+    public Result<List<ExamSessionResponse>> list(HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        List<ExamSession> sessions;
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            sessions = examSessionService.list();
-        } else {
-            sessions = examSessionService.getByTeacherId(userId);
-        }
+        List<ExamSession> sessions = examSessionService.getByTeacherId(userId);
         examSessionService.fillStudentNames(sessions);
-        return Result.success(sessions);
+        return Result.success(examSessionService.convertToResponses(sessions));
     }
 
     @Operation(summary = "分页查询考试记录", description = "支持考试ID、学生ID和状态筛选")
     @GetMapping("/page")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    public Result<PageResult<ExamSession>> page(
-            PageRequest pageRequest,
+    public Result<PageResult<ExamSessionResponse>> page(
+            @Valid PageRequest pageRequest,
             @Parameter(description = "考试ID") @RequestParam(required = false) Long examId,
             @Parameter(description = "学生ID") @RequestParam(required = false) Long studentId,
             @Parameter(description = "状态筛选") @RequestParam(required = false) String status,
@@ -65,11 +61,13 @@ public class ExamSessionController {
             HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
-        return Result.success(examSessionService.page(pageRequest, examId, studentId, status, gradingStatus, userId, userRole));
+        return Result.success(examSessionService.convertToPageResult(
+                examSessionService.page(pageRequest, examId, studentId, status, gradingStatus, userId, userRole)));
     }
 
     @GetMapping("/{id}")
-    public Result<ExamSession> getById(@PathVariable Long id, HttpServletRequest request) {
+    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER, RoleEnum.STUDENT})
+    public Result<ExamSessionResponse> getById(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
 
         ExamSession session = examSessionService.getById(id);
@@ -82,81 +80,77 @@ public class ExamSessionController {
             return Result.error("考试不存在");
         }
 
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        boolean isAdmin = RoleEnum.ADMIN.getCode().equals(userRole);
-        boolean isTeacher = exam.getTeacherId().equals(userId);
+        boolean isTeacher = userId.equals(exam.getTeacherId());
         boolean isOwner = session.getStudentId().equals(userId);
 
-        if (!isAdmin && !isTeacher && !isOwner) {
+        if (!isTeacher && !isOwner) {
             return Result.error("无权查看该考试记录");
         }
 
-        return Result.success(session);
+        return Result.success(examSessionService.convertToResponse(session));
     }
 
     @GetMapping("/exam/{examId}")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    public Result<List<ExamSession>> getByExamId(@PathVariable Long examId, HttpServletRequest request) {
+    public Result<List<ExamSessionResponse>> getByExamId(@PathVariable Long examId, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
 
         Exam exam = examService.getById(examId);
         if (exam == null) {
             return Result.error("考试不存在");
         }
 
-        boolean isAdmin = RoleEnum.ADMIN.getCode().equals(userRole);
-        if (!isAdmin && !exam.getTeacherId().equals(userId)) {
+        if (!userId.equals(exam.getTeacherId())) {
             return Result.error("无权查看该考试的记录");
         }
 
         List<ExamSession> sessions = examSessionService.getByExamId(examId);
         examSessionService.fillStudentNames(sessions);
-        return Result.success(sessions);
+        return Result.success(examSessionService.convertToResponses(sessions));
     }
 
     @GetMapping("/my")
-    public Result<List<ExamSession>> getMySessions(HttpServletRequest request) {
+    @RequireRole(RoleEnum.STUDENT)
+    public Result<List<ExamSessionResponse>> getMySessions(HttpServletRequest request) {
         Long studentId = SecurityUtil.getCurrentUserId(request);
-        return Result.success(examSessionService.getByStudentId(studentId));
+        return Result.success(examSessionService.convertToResponses(
+                examSessionService.getByStudentId(studentId)));
     }
 
     @GetMapping("/pending-grading")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    public Result<List<ExamSession>> getPendingGradingSessions(HttpServletRequest request) {
+    public Result<List<ExamSessionResponse>> getPendingGradingSessions(HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         List<ExamSession> sessions = examSessionService.getPendingGradingSessions(userId);
 
         examSessionService.fillStudentNames(sessions);
-        return Result.success(sessions);
+        return Result.success(examSessionService.convertToResponses(sessions));
     }
 
     @GetMapping("/pending-grading/exam/{examId}")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    public Result<List<ExamSession>> getPendingGradingByExamId(@PathVariable Long examId, HttpServletRequest request) {
+    public Result<List<ExamSessionResponse>> getPendingGradingByExamId(@PathVariable Long examId, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
 
         Exam exam = examService.getById(examId);
         if (exam == null) {
             return Result.error("考试不存在");
         }
 
-        boolean isAdmin = RoleEnum.ADMIN.getCode().equals(userRole);
-        if (!isAdmin && !exam.getTeacherId().equals(userId)) {
+        if (!userId.equals(exam.getTeacherId())) {
             return Result.error("无权查看该考试的记录");
         }
 
         List<ExamSession> sessions = examSessionService.getPendingGradingByExamId(examId);
         examSessionService.fillStudentNames(sessions);
-        return Result.success(sessions);
+        return Result.success(examSessionService.convertToResponses(sessions));
     }
 
     @PostMapping("/grade")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    public Result<Void> gradeSubjectiveAnswers(@RequestBody GradeSubjectiveRequest request, HttpServletRequest httpRequest) {
-        Long userId = SecurityUtil.getCurrentUserId(httpRequest);
-        String userRole = SecurityUtil.getCurrentUserRole(httpRequest);
+    public Result<Void> gradeSubjectiveAnswers(@Valid @RequestBody GradeSubjectiveRequest request, HttpServletRequest servletRequest) {
+        Long userId = SecurityUtil.getCurrentUserId(servletRequest);
+        String userRole = SecurityUtil.getCurrentUserRole(servletRequest);
         examService.gradeSubjectiveAnswers(userId, userRole, request);
         return Result.success();
     }
@@ -171,6 +165,7 @@ public class ExamSessionController {
     }
 
     @GetMapping("/{id}/result")
+    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER, RoleEnum.STUDENT})
     public Result<ExamResultResponse> getExamResult(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);

@@ -7,6 +7,7 @@ import com.southcollege.exam.dto.request.UpdateProfileRequest;
 import com.southcollege.exam.dto.response.LoginResponse;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.dto.response.UserResponse;
+import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.service.UserService;
 import com.southcollege.exam.utils.SecurityUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,6 +37,14 @@ public class AuthController {
         return Result.success(userService.login(request.getUsername(), request.getPassword()));
     }
 
+    @Operation(summary = "刷新 Token", description = "使用现有 Token（含已过期但未超过7天的）换取新 Token")
+    @PostMapping("/refresh")
+    public Result<LoginResponse> refreshToken(HttpServletRequest request) {
+        String token = extractTokenFromRequest(request);
+        LoginResponse response = userService.refreshToken(token);
+        return Result.success(response);
+    }
+
     @Operation(summary = "用户注册", description = "注册新用户（默认为学生角色）")
     @PostMapping("/register")
     public Result<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -57,16 +66,24 @@ public class AuthController {
 
     @Operation(summary = "修改密码", description = "修改当前用户的密码")
     @PostMapping("/change-password")
-    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request, HttpServletRequest httpRequest) {
-        Long userId = SecurityUtil.getCurrentUserId(httpRequest);
+    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request, HttpServletRequest servletRequest) {
+        Long userId = SecurityUtil.getCurrentUserId(servletRequest);
         userService.changePassword(userId, request.getOldPassword(), request.getNewPassword());
         return Result.success();
     }
 
     @Operation(summary = "更新个人资料", description = "更新当前用户的昵称和头像")
     @PutMapping("/profile")
-    public Result<UserResponse> updateProfile(@Valid @RequestBody UpdateProfileRequest request, HttpServletRequest httpRequest) {
-        Long userId = SecurityUtil.getCurrentUserId(httpRequest);
+    public Result<UserResponse> updateProfile(@Valid @RequestBody UpdateProfileRequest request, HttpServletRequest servletRequest) {
+        Long userId = SecurityUtil.getCurrentUserId(servletRequest);
         return Result.success(userService.updateProfile(userId, request.getNickname(), request.getAvatar()));
+    }
+
+    private String extractTokenFromRequest(HttpServletRequest request) {
+        String token = request.getHeader("Authorization");
+        if (token == null || !token.startsWith("Bearer ")) {
+            throw new BusinessException("未提供有效的 Authorization 请求头");
+        }
+        return token.substring(7);
     }
 }

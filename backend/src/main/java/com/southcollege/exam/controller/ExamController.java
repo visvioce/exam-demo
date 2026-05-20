@@ -4,14 +4,13 @@ import com.southcollege.exam.annotation.RequireRole;
 import com.southcollege.exam.dto.request.ExamCreateRequest;
 import com.southcollege.exam.dto.request.ExamUpdateRequest;
 import com.southcollege.exam.dto.request.PageRequest;
-import com.southcollege.exam.dto.response.ExamResultResponse;
+import com.southcollege.exam.dto.response.ExamResponse;
+import com.southcollege.exam.dto.response.ExamSessionResponse;
 import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.dto.response.QuestionForExamResponse;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.entity.Exam;
 import com.southcollege.exam.entity.ExamSession;
-import com.southcollege.exam.entity.Paper;
-import com.southcollege.exam.entity.Question;
 import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.service.CourseService;
 import com.southcollege.exam.service.ExamService;
@@ -46,7 +45,7 @@ public class ExamController {
     @GetMapping("/page")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
     @Operation(summary = "分页查询考试", description = "管理员和教师可访问，教师只能查看自己创建的考试")
-    public Result<PageResult<Exam>> page(
+    public Result<PageResult<ExamResponse>> page(
             @Valid PageRequest pageRequest,
             @Parameter(description = "课程ID") @RequestParam(required = false) Long courseId,
             @Parameter(description = "教师ID") @RequestParam(required = false) Long teacherId,
@@ -54,26 +53,33 @@ public class ExamController {
             HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
-        return Result.success(examService.page(pageRequest, courseId, teacherId, status, userId, userRole));
+        return Result.success(examService.convertToPageResult(
+                examService.page(pageRequest, courseId, teacherId, status, userId, userRole)));
     }
 
     @GetMapping
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    @Operation(summary = "获取全部考试", description = "不建议使用，数据量大时会有性能问题")
-    public Result<List<Exam>> list(HttpServletRequest request) {
+    @Operation(summary = "获取当前用户的考试列表")
+    public Result<List<ExamResponse>> list(HttpServletRequest request) {
+        Long userId = SecurityUtil.getCurrentUserId(request);
+        return Result.success(examService.convertToResponses(examService.getByTeacherId(userId)));
+    }
+
+    @GetMapping("/{id}/review")
+    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER, RoleEnum.STUDENT})
+    public Result<List<Exam.ExamQuestion>> getReviewQuestions(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
-        if (RoleEnum.ADMIN.getCode().equals(userRole)) {
-            return Result.success(examService.listWithDisplayFields());
-        }
-        return Result.success(examService.getByTeacherId(userId));
+        return Result.success(examService.getReviewQuestions(id, userId, userRole));
     }
 
     @GetMapping("/{id}")
-    public Result<Exam> getById(@PathVariable Long id, HttpServletRequest request) {
+    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER, RoleEnum.STUDENT})
+    public Result<ExamResponse> getById(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
-        return Result.success(examService.getByIdWithPermission(id, userId, userRole));
+        return Result.success(examService.convertToResponse(
+                examService.getByIdWithPermission(id, userId, userRole)));
     }
 
     @PostMapping
@@ -88,18 +94,17 @@ public class ExamController {
     public Result<Void> publish(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
-        examService.checkOwnership(id, userId, userRole);
-        examService.publishExam(id);
+        examService.publishExam(id, userId, userRole);
         return Result.success();
     }
 
-    @PostMapping("/{id}/cancel")
+    @PostMapping("/{id}/end")
     @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
-    public Result<Void> cancel(@PathVariable Long id, HttpServletRequest request) {
+    @Operation(summary = "提前结束考试", description = "将进行中的考试提前结束")
+    public Result<Void> end(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
-        examService.checkOwnership(id, userId, userRole);
-        examService.cancelExam(id);
+        examService.endExam(id, userId, userRole);
         return Result.success();
     }
 
@@ -118,20 +123,28 @@ public class ExamController {
         String userRole = SecurityUtil.getCurrentUserRole(request);
         examService.checkOwnership(id, userId, userRole);
         examService.checkCanDelete(id);
-        return Result.success(examService.removeById(id));
+        examService.deleteExam(id);
+        return Result.success(true);
     }
 
     @GetMapping("/published")
-    public Result<List<Exam>> getPublishedExams(HttpServletRequest request) {
+    @RequireRole(RoleEnum.STUDENT)
+    public Result<PageResult<ExamResponse>> getPublishedExams(
+            @Valid PageRequest pageRequest,
+            HttpServletRequest request) {
         Long studentId = SecurityUtil.getCurrentUserId(request);
-        return Result.success(examService.getPublishedExams(studentId));
+        return Result.success(examService.convertToPageResult(
+                examService.getPublishedExams(pageRequest, studentId)));
     }
 
     @GetMapping("/my")
     @RequireRole(RoleEnum.STUDENT)
-    public Result<List<Exam>> getMyExams(HttpServletRequest request) {
+    public Result<PageResult<ExamResponse>> getMyExams(
+            @Valid PageRequest pageRequest,
+            HttpServletRequest request) {
         Long studentId = SecurityUtil.getCurrentUserId(request);
-        return Result.success(examService.getMyExams(studentId));
+        return Result.success(examService.convertToPageResult(
+                examService.getMyExams(pageRequest, studentId)));
     }
 
     @GetMapping("/{id}/questions")
@@ -143,16 +156,16 @@ public class ExamController {
 
     @PostMapping("/{id}/start")
     @RequireRole(RoleEnum.STUDENT)
-    public Result<ExamSession> startExam(@PathVariable Long id, HttpServletRequest request) {
+    public Result<ExamSessionResponse> startExam(@PathVariable Long id, HttpServletRequest request) {
         Long studentId = SecurityUtil.getCurrentUserId(request);
-        return Result.success(examService.startExam(id, studentId));
+        return Result.success(examService.convertSessionToResponse(examService.startExam(id, studentId)));
     }
 
     @PostMapping("/{id}/submit")
     @RequireRole(RoleEnum.STUDENT)
     public Result<Void> submitExam(
             @PathVariable Long id,
-            @RequestBody List<ExamSession.Answer> answers,
+            @Valid @RequestBody List<ExamSession.Answer> answers,
             HttpServletRequest request) {
         Long studentId = SecurityUtil.getCurrentUserId(request);
         examService.submitExam(id, studentId, answers);
@@ -163,24 +176,10 @@ public class ExamController {
     @RequireRole(RoleEnum.STUDENT)
     public Result<Void> autoSaveExam(
             @PathVariable Long id,
-            @RequestBody List<ExamSession.Answer> answers,
+            @Valid @RequestBody List<ExamSession.Answer> answers,
             HttpServletRequest request) {
         Long studentId = SecurityUtil.getCurrentUserId(request);
         examService.autoSaveExam(id, studentId, answers);
         return Result.success();
-    }
-
-    @GetMapping("/{id}/paper")
-    public Result<Paper> getExamPaper(@PathVariable Long id, HttpServletRequest request) {
-        Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        return Result.success(examService.getExamPaper(id, userId, userRole));
-    }
-
-    @GetMapping("/{id}/review-questions")
-    public Result<List<Question>> getReviewQuestions(@PathVariable Long id, HttpServletRequest request) {
-        Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        return Result.success(examService.getReviewQuestions(id, userId, userRole));
     }
 }

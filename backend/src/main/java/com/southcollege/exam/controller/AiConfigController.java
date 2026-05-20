@@ -1,12 +1,20 @@
 package com.southcollege.exam.controller;
 
+import com.southcollege.exam.annotation.RequireRole;
+import com.southcollege.exam.dto.request.AiConfigSaveRequest;
+import com.southcollege.exam.dto.response.AiConfigResponse;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.entity.AiConfig;
+import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.service.AiConfigService;
 import com.southcollege.exam.utils.SecurityUtil;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import lombok.Data;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,7 +27,7 @@ import java.util.List;
 @Tag(name = "AI 配置管理", description = "AI API 配置增删改查")
 @RestController
 @RequestMapping("/api/ai-configs")
-@com.southcollege.exam.annotation.RequireRole({com.southcollege.exam.enums.RoleEnum.ADMIN, com.southcollege.exam.enums.RoleEnum.TEACHER})
+@RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
 public class AiConfigController {
 
     private final AiConfigService aiConfigService;
@@ -29,37 +37,37 @@ public class AiConfigController {
     }
 
     @GetMapping("/my")
-    public Result<List<AiConfig>> getMyConfigs(HttpServletRequest request) {
+    public Result<List<AiConfigResponse>> getMyConfigs(HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         List<AiConfig> configs = aiConfigService.getByUserId(userId);
-        configs.forEach(c -> c.setApiKey(aiConfigService.maskApiKey(c.getApiKey())));
-        return Result.success(configs);
+        return Result.success(aiConfigService.convertToResponses(configs));
     }
 
     @GetMapping("/my/active")
-    public Result<AiConfig> getMyActiveConfig(HttpServletRequest request) {
+    public Result<AiConfigResponse> getMyActiveConfig(HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         AiConfig config = aiConfigService.getActiveByUserId(userId);
-        if (config != null) {
-            config.setApiKey(aiConfigService.maskApiKey(config.getApiKey()));
-        }
-        return Result.success(config);
+        return Result.success(aiConfigService.convertToResponse(config));
     }
 
     @GetMapping("/{id}")
-    public Result<AiConfig> getById(@PathVariable Long id, HttpServletRequest request) {
+    public Result<AiConfigResponse> getById(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         AiConfig config = aiConfigService.getById(id);
         if (config == null || !config.getUserId().equals(userId)) {
             return Result.error("无权访问此配置");
         }
-        config.setApiKey(aiConfigService.maskApiKey(config.getApiKey()));
-        return Result.success(config);
+        return Result.success(aiConfigService.convertToResponse(config));
     }
 
     @PostMapping
-    public Result<AiConfig> create(@RequestBody AiConfig aiConfig, HttpServletRequest request) {
+    public Result<AiConfigResponse> create(@Valid @RequestBody AiConfigSaveRequest aiConfigSaveRequest, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
+        AiConfig aiConfig = new AiConfig();
+        aiConfig.setName(aiConfigSaveRequest.getName());
+        aiConfig.setBaseUrl(aiConfigSaveRequest.getBaseUrl());
+        aiConfig.setApiKey(aiConfigSaveRequest.getApiKey());
+        aiConfig.setModels(aiConfigSaveRequest.getModels());
         aiConfig.setUserId(userId);
 
         String validationError = aiConfigService.validateAiConfig(aiConfig);
@@ -73,17 +81,22 @@ public class AiConfigController {
         }
 
         aiConfigService.save(aiConfig);
-        aiConfig.setApiKey(aiConfigService.maskApiKey(aiConfig.getApiKey()));
-        return Result.success(aiConfig);
+        return Result.success(aiConfigService.convertToResponse(aiConfig));
     }
 
     @PutMapping("/{id}")
-    public Result<Boolean> update(@PathVariable Long id, @RequestBody AiConfig aiConfig, HttpServletRequest request) {
+    public Result<Boolean> update(@PathVariable Long id, @Valid @RequestBody AiConfigSaveRequest aiConfigSaveRequest, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         AiConfig existing = aiConfigService.getById(id);
         if (existing == null || !existing.getUserId().equals(userId)) {
             return Result.error("无权修改此配置");
         }
+
+        AiConfig aiConfig = new AiConfig();
+        aiConfig.setName(aiConfigSaveRequest.getName());
+        aiConfig.setBaseUrl(aiConfigSaveRequest.getBaseUrl());
+        aiConfig.setApiKey(aiConfigSaveRequest.getApiKey());
+        aiConfig.setModels(aiConfigSaveRequest.getModels());
 
         if (aiConfig.getApiKey() == null
                 || aiConfig.getApiKey().trim().isEmpty()
@@ -113,9 +126,9 @@ public class AiConfigController {
 
     @PostMapping("/{id}/models")
     @Operation(summary = "添加模型", description = "向配置中添加一个新模型")
-    public Result<AiConfig> addModel(
+    public Result<AiConfigResponse> addModel(
             @PathVariable Long id,
-            @RequestBody AddModelRequest modelRequest,
+            @Valid @RequestBody AddModelRequest modelRequest,
             HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         AiConfig existing = aiConfigService.getById(id);
@@ -125,13 +138,12 @@ public class AiConfigController {
 
         aiConfigService.addModel(id, modelRequest.getModel());
         AiConfig updated = aiConfigService.getById(id);
-        updated.setApiKey(aiConfigService.maskApiKey(updated.getApiKey()));
-        return Result.success(updated);
+        return Result.success(aiConfigService.convertToResponse(updated));
     }
 
     @DeleteMapping("/{id}/models/{model}")
     @Operation(summary = "删除模型", description = "从配置中删除指定模型")
-    public Result<AiConfig> removeModel(
+    public Result<AiConfigResponse> removeModel(
             @PathVariable Long id,
             @PathVariable String model,
             HttpServletRequest request) {
@@ -143,13 +155,12 @@ public class AiConfigController {
 
         aiConfigService.removeModel(id, model);
         AiConfig updated = aiConfigService.getById(id);
-        updated.setApiKey(aiConfigService.maskApiKey(updated.getApiKey()));
-        return Result.success(updated);
+        return Result.success(aiConfigService.convertToResponse(updated));
     }
 
     @PostMapping("/{id}/models/{model}/activate")
     @Operation(summary = "激活模型(路径参数)", description = "将指定模型设为当前使用的模型（模型名通过URL路径传递）")
-    public Result<AiConfig> activateModel(
+    public Result<AiConfigResponse> activateModel(
             @PathVariable Long id,
             @PathVariable String model,
             HttpServletRequest request) {
@@ -161,29 +172,24 @@ public class AiConfigController {
 
         aiConfigService.setActiveModel(id, model, userId);
         AiConfig updated = aiConfigService.getById(id);
-        updated.setApiKey(aiConfigService.maskApiKey(updated.getApiKey()));
-        return Result.success(updated);
+        return Result.success(aiConfigService.convertToResponse(updated));
     }
 
     @PostMapping("/{id}/activate-model")
     @Operation(summary = "激活模型(请求体)", description = "将指定模型设为当前使用的模型（模型名通过请求体传递，推荐使用）")
-    public Result<AiConfig> activateModelByBody(
+    public Result<AiConfigResponse> activateModelByBody(
             @PathVariable Long id,
-            @RequestBody ActivateModelRequest body,
+            @Valid @RequestBody ActivateModelRequest body,
             HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         AiConfig existing = aiConfigService.getById(id);
         if (existing == null || !existing.getUserId().equals(userId)) {
             return Result.error("无权操作此配置");
         }
-        if (body == null || body.getModel() == null || body.getModel().trim().isEmpty()) {
-            return Result.error("模型名称不能为空");
-        }
 
         aiConfigService.setActiveModel(id, body.getModel().trim(), userId);
         AiConfig updated = aiConfigService.getById(id);
-        updated.setApiKey(aiConfigService.maskApiKey(updated.getApiKey()));
-        return Result.success(updated);
+        return Result.success(aiConfigService.convertToResponse(updated));
     }
 
     @GetMapping("/active-model")
@@ -204,17 +210,21 @@ public class AiConfigController {
         return Result.success(info);
     }
 
-    @lombok.Data
+    @Data
     public static class AddModelRequest {
+        @NotBlank(message = "模型名称不能为空")
+        @Schema(description = "模型名称", example = "deepseek-chat")
         private String model;
     }
 
-    @lombok.Data
+    @Data
     public static class ActivateModelRequest {
+        @NotBlank(message = "模型名称不能为空")
+        @Schema(description = "要激活的模型名称", example = "deepseek-chat")
         private String model;
     }
 
-    @lombok.Data
+    @Data
     public static class ActiveModelInfo {
         private Long configId;
         private String configName;

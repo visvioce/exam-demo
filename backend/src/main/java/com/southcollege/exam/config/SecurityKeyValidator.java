@@ -25,10 +25,10 @@ public class SecurityKeyValidator {
 
     private final Environment environment;
 
-    // 不安全的默认密钥列表
     private static final String[] INSECURE_JWT_SECRETS = {
             "your_jwt_secret_key_here_change_in_production_please_use_at_least_256_bits",
-            "SouthCollegeExam2024GraduationJwtSecretKey"
+            "SouthCollegeExam2024GraduationJwtSecretKey",
+            "exam_system_jwt_secret_key_256_bits_for_graduation_project_2024"
     };
 
     private static final String[] INSECURE_AES_SECRETS = {
@@ -59,6 +59,11 @@ public class SecurityKeyValidator {
     }
 
     private void validateJwtSecret() {
+        if (jwtSecret == null || jwtSecret.isEmpty()) {
+            throw new SecurityConfigurationException(
+                    "JWT 密钥未配置！生产环境必须通过环境变量 JWT_SECRET 设置安全的密钥。");
+        }
+
         // JWT 密钥至少需要 256 位 (32 字节) 才能用于 HS256
         if (jwtSecret.length() < 32) {
             throw new SecurityConfigurationException(
@@ -74,6 +79,11 @@ public class SecurityKeyValidator {
     }
 
     private void validateAesSecret() {
+        if (aesSecret == null || aesSecret.isEmpty()) {
+            throw new SecurityConfigurationException(
+                    "AES 密钥未配置！生产环境必须通过环境变量 AES_SECRET 设置安全的密钥。");
+        }
+
         // AES 密钥必须是 16、24 或 32 字节
         if (aesSecret.length() != 16 && aesSecret.length() != 24 && aesSecret.length() != 32) {
             throw new SecurityConfigurationException(
@@ -89,11 +99,15 @@ public class SecurityKeyValidator {
     }
 
     private void warnIfInsecureKey() {
-        if (Arrays.asList(INSECURE_JWT_SECRETS).contains(jwtSecret)) {
+        if (jwtSecret == null || jwtSecret.isEmpty()) {
+            log.error("⚠️ 严重警告: JWT 密钥为空！请设置环境变量 JWT_SECRET");
+        } else if (Arrays.asList(INSECURE_JWT_SECRETS).contains(jwtSecret)) {
             log.warn("⚠️ 警告: JWT 使用默认密钥，生产环境请设置环境变量 JWT_SECRET");
         }
 
-        if (Arrays.asList(INSECURE_AES_SECRETS).contains(aesSecret)) {
+        if (aesSecret == null || aesSecret.isEmpty()) {
+            log.error("⚠️ 严重警告: AES 密钥为空！请设置环境变量 AES_SECRET");
+        } else if (Arrays.asList(INSECURE_AES_SECRETS).contains(aesSecret)) {
             log.warn("⚠️ 警告: AES 使用默认密钥，生产环境请设置环境变量 AES_SECRET");
         }
     }

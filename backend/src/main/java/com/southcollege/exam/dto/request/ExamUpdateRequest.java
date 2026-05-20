@@ -6,6 +6,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * 考试更新请求
@@ -26,10 +27,6 @@ public class ExamUpdateRequest {
     @Schema(description = "课程ID", example = "1")
     private Long courseId;
 
-    @Positive(message = "试卷ID必须为正数")
-    @Schema(description = "试卷ID", example = "1")
-    private Long paperId;
-
     @Schema(description = "开始时间", example = "2024-01-01T09:00:00")
     private LocalDateTime startedAt;
 
@@ -41,15 +38,10 @@ public class ExamUpdateRequest {
     @Schema(description = "考试时长（分钟）", example = "120")
     private Integer duration;
 
-    @Positive(message = "总分必须为正数")
-    @Max(value = 1000, message = "总分不能超过1000分")
-    @Schema(description = "总分", example = "100")
-    private BigDecimal totalScore;
+    @Schema(description = "题型分值配置，key为题型代码，value为每题分值")
+    private Map<String, BigDecimal> questionScores;
 
     @Positive(message = "及格分必须为正数")
     @Schema(description = "及格分", example = "60")
     private BigDecimal passScore;
-
-    // status 字段已移除：考试状态变更必须通过 publishExam()/cancelExam() 接口，
-    // 防止绕过状态机直接修改状态（如 DRAFT -> ENDED 非法跳转）
 }

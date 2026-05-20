@@ -7,7 +7,7 @@ import com.southcollege.exam.validator.ValidPassword;
 import lombok.Data;
 
 @Data
-public class RegisterRequest {
+public class UserSaveRequest {
 
     @NotBlank(message = "用户名不能为空")
     @Size(min = 3, max = 50, message = "用户名长度必须在3-50之间")
@@ -21,4 +21,9 @@ public class RegisterRequest {
 
     @Size(max = 50, message = "昵称不能超过50个字符")
     private String nickname;
+
+    @NotBlank(message = "角色不能为空")
+    @Pattern(regexp = "ADMIN|TEACHER|STUDENT",
+            message = "角色不合法")
+    private String role;
 }

@@ -1,12 +1,15 @@
 package com.southcollege.exam.controller;
 
 import com.southcollege.exam.annotation.RequireRole;
+import com.southcollege.exam.dto.request.CarouselSaveRequest;
+import com.southcollege.exam.dto.response.CarouselResponse;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.entity.Carousel;
 import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.service.CarouselService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -28,31 +31,51 @@ public class CarouselController {
     }
 
     @GetMapping
-    public Result<List<Carousel>> list() {
-        return Result.success(carouselService.list());
+    @RequireRole({RoleEnum.ADMIN})
+    public Result<List<CarouselResponse>> list() {
+        return Result.success(carouselService.convertToResponses(carouselService.list()));
     }
 
     @GetMapping("/{id}")
-    public Result<Carousel> getById(@PathVariable Long id) {
-        return Result.success(carouselService.getById(id));
+    @RequireRole({RoleEnum.ADMIN})
+    public Result<CarouselResponse> getById(@PathVariable Long id) {
+        return Result.success(carouselService.convertToResponse(carouselService.getById(id)));
     }
 
     @GetMapping("/active")
-    public Result<List<Carousel>> getActive() {
-        return Result.success(carouselService.getActive());
+    public Result<List<CarouselResponse>> getActive() {
+        return Result.success(carouselService.convertToResponses(carouselService.getActive()));
     }
 
     @PostMapping
     @RequireRole({RoleEnum.ADMIN})
-    public Result<Boolean> save(@RequestBody Carousel carousel) {
+    public Result<Boolean> save(@Valid @RequestBody CarouselSaveRequest carouselSaveRequest) {
+        Carousel carousel = new Carousel();
+        carousel.setTitle(carouselSaveRequest.getTitle());
+        carousel.setImageUrl(carouselSaveRequest.getImageUrl());
+        carousel.setLinkUrl(carouselSaveRequest.getLinkUrl());
+        carousel.setSortOrder(carouselSaveRequest.getSortOrder());
+        if (carouselSaveRequest.getIsActive() != null) {
+            carousel.setStatus(carouselSaveRequest.getIsActive() ? "ACTIVE" : "INACTIVE");
+        }
         return Result.success(carouselService.save(carousel));
     }
 
     @PutMapping("/{id}")
     @RequireRole({RoleEnum.ADMIN})
-    public Result<Boolean> update(@PathVariable Long id, @RequestBody Carousel carousel) {
-        carousel.setId(id);
-        return Result.success(carouselService.updateById(carousel));
+    public Result<Boolean> update(@PathVariable Long id, @Valid @RequestBody CarouselSaveRequest carouselSaveRequest) {
+        Carousel existing = carouselService.getById(id);
+        if (existing == null) {
+            return Result.error("轮播图不存在");
+        }
+        existing.setTitle(carouselSaveRequest.getTitle());
+        existing.setImageUrl(carouselSaveRequest.getImageUrl());
+        existing.setLinkUrl(carouselSaveRequest.getLinkUrl());
+        existing.setSortOrder(carouselSaveRequest.getSortOrder());
+        if (carouselSaveRequest.getIsActive() != null) {
+            existing.setStatus(carouselSaveRequest.getIsActive() ? "ACTIVE" : "INACTIVE");
+        }
+        return Result.success(carouselService.updateById(existing));
     }
 
     @DeleteMapping("/{id}")
