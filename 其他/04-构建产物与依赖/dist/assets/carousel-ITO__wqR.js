@@ -1,0 +1,1 @@
+import{s as r}from"./index-CFUFPjwV.js";const u={list(){return r.get("/carousels")},getActive(){return r.get("/carousels/active")},getById(e){return r.get(`/carousels/${e}`)},create(e){return r.post("/carousels",e)},update(e,t){return r.put(`/carousels/${e}`,t)},delete(e){return r.delete(`/carousels/${e}`)}};export{u as c};

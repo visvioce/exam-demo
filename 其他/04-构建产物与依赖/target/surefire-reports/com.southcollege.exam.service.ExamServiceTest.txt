@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.southcollege.exam.service.ExamServiceTest
+-------------------------------------------------------------------------------
+Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.115 s -- in com.southcollege.exam.service.ExamServiceTest

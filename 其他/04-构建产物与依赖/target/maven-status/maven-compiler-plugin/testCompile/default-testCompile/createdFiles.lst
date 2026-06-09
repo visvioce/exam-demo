@@ -1,0 +1,9 @@
+com/southcollege/exam/service/QuestionServiceTest.class
+com/southcollege/exam/service/PaperServiceTest.class
+com/southcollege/exam/utils/PasswordUtilTest.class
+com/southcollege/exam/utils/AesUtilTest.class
+com/southcollege/exam/utils/AesUtilStaticInitTest.class
+com/southcollege/exam/utils/JwtUtilTest.class
+com/southcollege/exam/service/ExamServiceTest.class
+com/southcollege/exam/service/CourseServiceTest.class
+com/southcollege/exam/service/UserServiceTest.class

@@ -1,0 +1,78 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  安全提醒:                                                        ║
+# ║  1. 生产环境请通过环境变量覆盖 JWT_SECRET, AES_SECRET, DB_PASSWORD  ║
+# ║  2. 生成256位强随机密钥示例: openssl rand -base64 32              ║
+# ║  3. 切勿将密钥提交到版本控制系统                                   ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: exam-system
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  banner:
+    location: classpath:banner.txt
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:exam_system}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+    default-property-inclusion: non_null
+
+mybatis-plus:
+  configuration:
+    # log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 生产环境禁用，改为通过 logging.level 控制
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      id-type: auto
+  # mapper-locations: classpath:/mapper/**/*.xml  # 项目使用注解驱动 Mapper，无需 XML 映射文件
+
+jwt:
+  # ⚠️ 安全警告: 请务必在生产环境中修改默认密钥，使用强随机密钥并妥善保管
+  secret: ${JWT_SECRET:exam-system-dev-jwt-secret-at-least-32-chars}
+  expiration: ${JWT_EXPIRATION:604800000}
+
+aes:
+  # ⚠️ 安全警告: 请务必在生产环境中修改默认密钥，使用强随机密钥并妥善保管
+  secret: ${AES_SECRET:exam-system-dev-16}
+
+cors:
+  allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+
+logging:
+  level:
+    com.southcollege.exam: info
+    com.southcollege.exam.mapper: warn
+    root: info
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
+
+springdoc:
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+    path: /v3/api-docs
+  group-configs:
+    - group: 'default'
+      paths-to-match: '/**'
+      packages-to-scan: com.southcollege.exam.controller

@@ -1,0 +1,67 @@
+package com.southcollege.exam.controller;
+
+import com.southcollege.exam.annotation.RequireRole;
+import com.southcollege.exam.dto.request.GenerateQuestionRequest;
+import com.southcollege.exam.dto.response.GeneratedQuestionResponse;
+import com.southcollege.exam.dto.response.Result;
+import com.southcollege.exam.enums.RoleEnum;
+import com.southcollege.exam.service.AiQuestionService;
+import com.southcollege.exam.utils.SecurityUtil;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
+
+/**
+ * AI 出题控制器
+ * 提供使用AI模型自动生成题目的接口，
+ * 支持流式(SSE)输出，实时展示AI生成过程
+ */
+@Tag(name = "AI 出题", description = "使用 AI 生成题目")
+@RestController
+@RequestMapping("/api/ai")
+public class AiQuestionController {
+
+    private final AiQuestionService aiQuestionService;
+
+    public AiQuestionController(AiQuestionService aiQuestionService) {
+        this.aiQuestionService = aiQuestionService;
+    }
+
+    @Operation(summary = "AI生成题目", description = "使用AI模型自动批量生成考试题目")
+    @PostMapping("/generate-questions")
+    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+    public Result<GeneratedQuestionResponse> generateQuestions(@Valid @RequestBody GenerateQuestionRequest request,
+                                                                HttpServletRequest servletRequest) {
+        Long userId = SecurityUtil.getCurrentUserId(servletRequest);
+        GeneratedQuestionResponse response = aiQuestionService.generateQuestions(
+                userId,
+                request.getSubject(),
+                request.getType(),
+                request.getDifficulty(),
+                request.getCount(),
+                request.getRequirements()
+        );
+        return Result.success(response);
+    }
+
+    @PostMapping(value = "/generate-questions-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+    @Operation(summary = "流式生成题目", description = "使用SSE实时推送AI生成的原始文本")
+    public Flux<ServerSentEvent<String>> generateQuestionsStream(@Valid @RequestBody GenerateQuestionRequest request,
+                                                                  HttpServletRequest servletRequest) {
+        Long userId = SecurityUtil.getCurrentUserId(servletRequest);
+        return aiQuestionService.generateQuestionsStream(
+                userId,
+                request.getSubject(),
+                request.getType(),
+                request.getDifficulty(),
+                request.getCount(),
+                request.getRequirements()
+        );
+    }
+}

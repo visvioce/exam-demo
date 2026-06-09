@@ -1,0 +1,10 @@
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/PasswordGenerator.java
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/service/CourseServiceTest.java
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/service/ExamServiceTest.java
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/service/PaperServiceTest.java
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/service/QuestionServiceTest.java
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/service/UserServiceTest.java
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/utils/AesUtilStaticInitTest.java
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/utils/AesUtilTest.java
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/utils/JwtUtilTest.java
+/home/xigua/work/exam-demo/backend/src/test/java/com/southcollege/exam/utils/PasswordUtilTest.java

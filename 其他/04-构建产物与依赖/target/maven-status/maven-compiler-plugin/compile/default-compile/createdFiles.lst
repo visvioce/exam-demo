@@ -1,0 +1,5 @@
+com/southcollege/exam/entity/Exam$Option.class
+com/southcollege/exam/entity/Exam$ScoringCriterion.class
+com/southcollege/exam/entity/Exam$ExamQuestion.class
+com/southcollege/exam/dto/response/QuestionForExamResponse$Option.class
+com/southcollege/exam/entity/Exam$ExamPaperData.class
