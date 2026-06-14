@@ -46,9 +46,19 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 试卷详情弹窗组件
+ *
+ * 以弹窗形式展示试卷的详细信息，包括：
+ * - 试卷名称和描述
+ * - 题目列表（题目类型、难度标签）
+ * - 题目内容和选项
+ * - 正确答案和解析
+ */
 import { getTypeName, getTypeColor, getDifficultyName, getDifficultyColor } from '@/utils/format'
 import type { QuestionOption } from '@/types'
 
+/** 试卷题目项 */
 export interface PaperQuestionItem {
   content: string
   type: string
@@ -59,9 +69,13 @@ export interface PaperQuestionItem {
 }
 
 defineProps<{
+  /** 弹窗显示/隐藏 */
   visible: boolean
+  /** 试卷名称 */
   title: string
+  /** 试卷描述 */
   description?: string
+  /** 试卷中的题目列表 */
   questions: PaperQuestionItem[]
 }>()
 
@@ -69,6 +83,7 @@ defineEmits<{
   'update:visible': [value: boolean]
 }>()
 
+/** 格式化答案显示（数组转字符串） */
 function formatAnswerDisplay(answer: unknown): string {
   if (Array.isArray(answer)) return answer.join(', ')
   return String(answer)

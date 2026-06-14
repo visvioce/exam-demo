@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 公告响应 DTO
+ */
 @Data
 public class AnnouncementResponse {
 

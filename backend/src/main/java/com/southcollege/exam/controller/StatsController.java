@@ -1,13 +1,8 @@
 package com.southcollege.exam.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.southcollege.exam.annotation.RequireRole;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.dto.response.StatsResponse;
-import com.southcollege.exam.entity.Course;
-import com.southcollege.exam.entity.Exam;
-import com.southcollege.exam.entity.Question;
-import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.service.CourseService;
 import com.southcollege.exam.service.ExamService;
 import com.southcollege.exam.service.QuestionService;
@@ -41,19 +36,15 @@ public class StatsController {
 
     @Operation(summary = "获取统计数据", description = "根据用户角色返回仪表盘统计数字")
     @GetMapping
-    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
     public Result<StatsResponse> getStats(HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
 
         StatsResponse stats = new StatsResponse();
-
         stats.setUserCount(0L);
-        stats.setCourseCount(courseService.count(new LambdaQueryWrapper<Course>()
-                .eq(Course::getTeacherId, userId)));
-        stats.setQuestionCount(questionService.count(new LambdaQueryWrapper<Question>()
-                .eq(Question::getTeacherId, userId)));
-        stats.setExamCount(examService.count(new LambdaQueryWrapper<Exam>()
-                .eq(Exam::getTeacherId, userId)));
+        stats.setCourseCount(courseService.countByTeacherId(userId));
+        stats.setQuestionCount(questionService.countByTeacherId(userId));
+        stats.setExamCount(examService.countByTeacherId(userId));
 
         return Result.success(stats);
     }

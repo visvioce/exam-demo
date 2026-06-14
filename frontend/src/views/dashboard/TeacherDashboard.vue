@@ -162,6 +162,20 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 教师/管理员仪表盘页面
+ * 
+ * 教师和管理员登录后的首页，展示：
+ * - 轮播图（系统公告/活动推广）
+ * - 个性化欢迎语（根据时间段和角色变化）
+ * - Bento Grid 快捷管理入口（课程管理、题库管理、考试管理、公告管理、试卷管理）
+ * - 最近公告列表
+ * - 智能待办提醒（待发布考试、进行中考试、未创建课程提醒）
+ * 
+ * 数据来源：轮播图 API、公告 API、考试 API、课程 API
+ * 待办事项基于实时数据动态生成，提供快捷操作入口
+ */
+
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -178,6 +192,7 @@ import {
   Timer
 } from '@element-plus/icons-vue'
 import type { Carousel, Announcement, Exam, Course } from '@/types'
+import { dayjs } from '@/utils/format'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -185,12 +200,12 @@ const authStore = useAuthStore()
 const carousels = ref<Carousel[]>([])
 const announcements = ref<Announcement[]>([])
 const loadingAnnouncements = ref(false)
-const exams = ref<Exam[]>([])
-const courses = ref<Course[]>([])
+const exams = ref<Exam[]>([])        // 所有考试（用于计算待办）
+const courses = ref<Course[]>([])    // 课程列表（用于检查是否为空）
 
 // 根据时间计算问候语
 const greeting = computed(() => {
-  const hour = new Date().getHours()
+  const hour = dayjs().hour()
   if (hour < 6) return '夜深了'
   if (hour < 9) return '早上好'
   if (hour < 12) return '上午好'
@@ -245,13 +260,9 @@ const todos = computed(() => {
 })
 
 function getCurrentDate() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
+  const now = dayjs()
   const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-  const weekDay = weekDays[now.getDay()]
-  return `${year}.${month}.${day} · ${weekDay}`
+  return `${now.format('YYYY.MM.DD')} · ${weekDays[now.day()]}`
 }
 
 function handleCarouselClick(item: Carousel) {
@@ -280,18 +291,17 @@ function getAnnouncementTypeLabel(type: string) {
 
 function formatRelativeTime(dateStr?: string) {
   if (!dateStr) return ''
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
+  const date = dayjs(dateStr)
+  const now = dayjs()
+  const minutes = now.diff(date, 'minute')
+  const hours = now.diff(date, 'hour')
+  const days = now.diff(date, 'day')
 
   if (minutes < 1) return '刚刚'
   if (minutes < 60) return `${minutes}分钟前`
   if (hours < 24) return `${hours}小时前`
   if (days < 7) return `${days}天前`
-  return date.toLocaleDateString('zh-CN')
+  return date.format('YYYY年M月D日')
 }
 
 async function loadCarousels() {
@@ -308,7 +318,7 @@ async function loadAnnouncements() {
   try {
     const res = await announcementApi.list()
     announcements.value = (res.data || []).sort((a, b) => {
-      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      return dayjs(b.createdAt || 0).valueOf() - dayjs(a.createdAt || 0).valueOf()
     })
   } catch {
     announcements.value = []

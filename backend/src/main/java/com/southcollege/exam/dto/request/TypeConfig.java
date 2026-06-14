@@ -4,6 +4,9 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import lombok.Data;
 
+/**
+ * 题型配置 DTO，用于自动组卷的题型参数
+ */
 @Data
 public class TypeConfig {
     @Positive(message = "题目数量必须为正数")

@@ -11,12 +11,11 @@ import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.dto.response.PaperResponse;
 import com.southcollege.exam.entity.Paper;
 import com.southcollege.exam.entity.Question;
-import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.mapper.PaperMapper;
+import com.southcollege.exam.mapstruct.PaperDtoMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,9 +38,11 @@ public class PaperService extends ServiceImpl<PaperMapper, Paper> {
     private static final Logger log = LoggerFactory.getLogger(PaperService.class);
 
     private final QuestionService questionService;
+    private final PaperDtoMapper paperDtoMapper;
 
-    public PaperService(QuestionService questionService) {
+    public PaperService(QuestionService questionService, PaperDtoMapper paperDtoMapper) {
         this.questionService = questionService;
+        this.paperDtoMapper = paperDtoMapper;
     }
 
     /**
@@ -108,46 +109,34 @@ public class PaperService extends ServiceImpl<PaperMapper, Paper> {
      * 在试卷加载时自动调用。如果发现失效题目ID，从 questionIds 中移除并更新数据库。
      * </p>
      */
-    @Transactional
-    public void cleanupStaleQuestionIds(Paper paper) {
+    private void cleanupStaleQuestionIds(Paper paper) {
         List<Long> questionIds = paper.getQuestionIds();
         if (questionIds == null || questionIds.isEmpty()) {
             return;
         }
 
-        List<Long> nonNullIds = questionIds.stream()
-                .filter(Objects::nonNull)
-                .toList();
-
-        if (nonNullIds.isEmpty()) {
-            return;
-        }
-
-        List<Question> validQuestions = questionService.listByIds(nonNullIds);
-        Set<Long> validIdSet = validQuestions.stream()
+        // 批量查询哪些题目ID还存在
+        List<Long> existingIds = questionService.listByIds(questionIds)
+                .stream()
                 .map(Question::getId)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toList());
 
-        List<Long> validIds = nonNullIds.stream()
-                .filter(validIdSet::contains)
-                .toList();
+        // 找出失效的ID
+        List<Long> staleIds = questionIds.stream()
+                .filter(id -> !existingIds.contains(id))
+                .collect(Collectors.toList());
 
-        int removedCount = nonNullIds.size() - validIds.size();
-        if (removedCount > 0) {
-            log.warn("试卷 {} (id={}) 存在 {} 个失效题目ID，已自动清理", 
-                    paper.getName(), paper.getId(), removedCount);
-            paper.setQuestionIds(validIds);
-            baseMapper.updateById(paper);
+        if (!staleIds.isEmpty()) {
+            log.info("试卷 {} 清理了 {} 个失效题目ID: {}", paper.getId(), staleIds.size(), staleIds);
+            paper.setQuestionIds(existingIds);
+            updateById(paper);
         }
     }
 
     /**
      * 校验试卷操作权限：管理员和教师权限相同，只能操作自己的试卷
      */
-    public void checkOwnership(Long paperId, Long userId, String userRole) {
-        if (!RoleEnum.fromCode(userRole).hasPermission(RoleEnum.TEACHER)) {
-            throw new BusinessException("无权操作该试卷");
-        }
+    public void checkOwnership(Long paperId, Long userId) {
         Paper paper = getById(paperId);
         if (paper == null) {
             throw new BusinessException("试卷不存在");
@@ -260,26 +249,15 @@ public class PaperService extends ServiceImpl<PaperMapper, Paper> {
 
     public PaperResponse convertToResponse(Paper entity) {
         if (entity == null) return null;
-        PaperResponse response = new PaperResponse();
-        BeanUtils.copyProperties(entity, response);
-        return response;
+        return paperDtoMapper.toResponse(entity);
     }
 
     public List<PaperResponse> convertToResponses(List<Paper> entities) {
         if (entities == null || entities.isEmpty()) return List.of();
-        return entities.stream().map(this::convertToResponse).toList();
+        return paperDtoMapper.toResponseList(entities);
     }
 
     public PageResult<PaperResponse> convertToPageResult(PageResult<Paper> pageResult) {
-        if (pageResult == null) return PageResult.empty(1, 10);
-        PageResult<PaperResponse> response = new PageResult<>();
-        response.setRecords(convertToResponses(pageResult.getRecords()));
-        response.setTotal(pageResult.getTotal());
-        response.setSize(pageResult.getSize());
-        response.setCurrent(pageResult.getCurrent());
-        response.setPages(pageResult.getPages());
-        response.setHasNext(pageResult.getHasNext());
-        response.setHasPrevious(pageResult.getHasPrevious());
-        return response;
+        return PageResult.map(pageResult, this::convertToResponses);
     }
 }

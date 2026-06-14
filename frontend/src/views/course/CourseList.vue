@@ -133,6 +133,20 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 课程列表页面组件
+ * 
+ * 根据用户角色展示不同的课程视图：
+ * - 学生：查看已加入的课程列表（卡片式展示，含封面、教师、学分、截止日期等信息）
+ * - 教师/管理员：管理自己的课程（创建、编辑、删除），以卡片网格展示
+ * 
+ * 核心功能：
+ * - 课程创建/编辑（名称、代码、封面、学分、状态、截止日期、描述）
+ * - 课程删除（带确认弹窗）
+ * - 点击课程卡片进入课程详情页
+ * - 权限控制：仅 ADMIN/TEACHER 可管理课程，且只能管理自己创建的课程
+ */
+
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -151,8 +165,8 @@ const authStore = useAuthStore()
 
 const loading = ref(false)
 const submitting = ref(false)
-const courses = ref<Course[]>([])
-const myCourses = ref<Course[]>([])
+const courses = ref<Course[]>([])       // 教师/管理员的课程列表
+const myCourses = ref<Course[]>([])     // 学生的已加入课程列表
 const editDialogVisible = ref(false)
 const isEdit = ref(false)
 const courseFormRef = ref<FormInstance>()
@@ -199,7 +213,7 @@ async function loadCourses() {
     const myRes = await courseApi.getMyCourses()
     myCourses.value = myRes.data || []
   } catch (error) {
-    ElMessage.error('加载课程失败')
+    ElMessage.error(getErrorMessage(error, '加载课程失败'))
   } finally {
     loading.value = false
   }

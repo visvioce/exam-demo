@@ -1,6 +1,6 @@
 package com.southcollege.exam.controller;
 
-import com.southcollege.exam.annotation.RequireRole;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.southcollege.exam.dto.request.PageRequest;
 import com.southcollege.exam.dto.request.UserSaveRequest;
 import com.southcollege.exam.dto.request.UserUpdateRequest;
@@ -8,7 +8,7 @@ import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.dto.response.UserResponse;
 import com.southcollege.exam.entity.User;
-import com.southcollege.exam.enums.RoleEnum;
+
 import com.southcollege.exam.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -26,7 +26,7 @@ import java.util.Set;
 @Tag(name = "用户管理", description = "用户增删改查（仅管理员）")
 @RestController
 @RequestMapping("/api/users")
-@RequireRole(RoleEnum.ADMIN)
+@PreAuthorize("hasRole('ADMIN')")
 public class UserController {
 
     private final UserService userService;

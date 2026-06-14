@@ -184,6 +184,23 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * AI 配置管理页面组件
+ * 
+ * 管理用户的 AI API 配置，用于 AI 智能出题等功能：
+ * ● 全局模型切换器 - 顶部下拉框快速切换当前使用的 AI 模型
+ * ● 配置卡片列表 - 每个配置包含 API 地址、API Key（脱敏显示）、模型列表
+ * ● 模型管理 - 添加/删除/激活模型
+ *   - 点击模型标签可激活该模型
+ *   - 关闭标签可删除模型（至少保留一个）
+ * ● 创建/编辑配置：
+ *   - 预设模板快速填充（通义千问、DeepSeek 等常见 AI 平台）
+ *   - 模型列表编辑器（输入添加、预设模型快速添加）
+ *   - 编辑时 API Key 选填（留空保持原值）
+ * 
+ * 数据来源：aiConfigApi（获取我的配置、激活模型等）
+ */
+
 import { ref, reactive, computed, onMounted } from 'vue'
 import { aiConfigApi, AI_PRESETS } from '@/api/aiconfig'
 import { ElMessage, ElMessageBox } from 'element-plus'

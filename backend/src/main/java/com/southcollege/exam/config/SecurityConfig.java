@@ -4,6 +4,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
+import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -18,11 +21,13 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * Spring Security 配置
  * <p>
  * JWT 认证由 {@link JwtAuthenticationFilter} 负责（注入 Security Filter Chain），
- * 角色权限由 {@link RoleInterceptor} 负责（Spring MVC Interceptor）。
+ * 角色权限由 {@code @PreAuthorize} 注解在 Controller 方法上声明，
+ * 角色层级由 {@link RoleHierarchy} 定义（ADMIN 自动拥有 TEACHER 权限）。
  * </p>
  */
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -31,6 +36,19 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
+    /**
+     * 角色层级定义：ADMIN 拥有 TEACHER 的全部权限
+     */
+    @Bean
+    public RoleHierarchy roleHierarchy() {
+        return RoleHierarchyImpl.withDefaultRolePrefix()
+                .role("ADMIN").implies("TEACHER")
+                .build();
+    }
+
+    /**
+     * 配置 Spring Security 过滤器链
+     */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http

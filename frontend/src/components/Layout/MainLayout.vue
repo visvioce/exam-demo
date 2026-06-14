@@ -104,6 +104,24 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 主布局组件
+ *
+ * 提供应用的主体布局结构：
+ * - 左侧侧边栏：Logo + Vue Router 导航菜单
+ * - 右侧内容区：顶部面包屑导航 + 用户信息下拉菜单 + 主内容区（router-view）
+ *
+ * 根据用户角色动态显示不同的菜单项：
+ * - ADMIN: 所有菜单项可见
+ * - TEACHER: 题库管理、试卷管理、AI配置、考试管理等
+ * - STUDENT: 我的课程、我的考试、公告查看
+ *
+ * 特性：
+ * - 路由面包屑自动生成
+ * - 答题页面自动切换为全屏模式（隐藏 header padding）
+ * - 登出确认对话框
+ * - 页面过渡动画
+ */
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -126,11 +144,17 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
+// 当前激活的菜单项（根据路由路径计算）
 const activeMenu = computed(() => route.path)
+// 是否为答题页面（需要全屏模式，移除 header 的 padding）
 const isExamTakePage = computed(() => /^\/exam\/\d+\/take(?:\/)?$/.test(route.path))
+// 是否为学生角色（用于动态改变菜单文字）
 const isStudent = computed(() => authStore.user?.role === 'STUDENT')
 
-// 根据当前路由生成面包屑标题
+/**
+ * 根据当前路由生成面包屑标题
+ * 对于子路由（如 /course/123），显示父级菜单名称
+ */
 const breadcrumbTitle = computed(() => {
   const titleMap: Record<string, string> = {
     '/course': isStudent.value ? '我的课程' : '课程管理',
@@ -144,6 +168,7 @@ const breadcrumbTitle = computed(() => {
     '/profile': '个人中心'
   }
 
+  // 先匹配子路由（如 /course/123 -> 课程管理）
   for (const [path, title] of Object.entries(titleMap)) {
     if (route.path.startsWith(path) && route.path !== path) {
       return title
@@ -153,10 +178,12 @@ const breadcrumbTitle = computed(() => {
   return titleMap[route.path] || ''
 })
 
+/** 检查用户是否拥有指定角色权限 */
 function hasPermission(roles: string[]) {
   return hasRolePermission(authStore.user?.role, roles)
 }
 
+/** 处理用户下拉菜单命令：退出登录 或 个人中心 */
 async function handleCommand(command: string) {
   if (command === 'logout') {
     try {
@@ -169,7 +196,7 @@ async function handleCommand(command: string) {
       router.push('/login')
       ElMessage.success('已退出登录')
     } catch {
-      // 取消操作
+      // 用户取消操作
     }
   } else if (command === 'profile') {
     router.push('/profile')

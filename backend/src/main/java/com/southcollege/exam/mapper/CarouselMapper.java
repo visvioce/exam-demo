@@ -11,6 +11,9 @@ import java.util.List;
 @Mapper
 public interface CarouselMapper extends BaseMapper<Carousel> {
 
+    /**
+     * 查询所有激活状态的轮播图（按排序字段升序）
+     */
     @Select("SELECT * FROM carousels WHERE status = 'ACTIVE' AND deleted = 0 ORDER BY sort_order")
     List<Carousel> selectActive();
 }

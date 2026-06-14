@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 考试结果响应
+ * 考试结果响应 DTO，包含主客观题得分和答题详情
  */
 @Data
 public class ExamResultResponse {

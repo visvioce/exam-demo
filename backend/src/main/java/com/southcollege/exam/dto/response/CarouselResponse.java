@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 轮播图响应 DTO
+ */
 @Data
 public class CarouselResponse {
 

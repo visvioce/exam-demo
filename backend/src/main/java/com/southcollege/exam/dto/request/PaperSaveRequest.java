@@ -6,6 +6,9 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * 试卷保存请求 DTO
+ */
 @Data
 public class PaperSaveRequest {
 

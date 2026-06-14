@@ -1,3 +1,6 @@
+// 通用详情页样式
+// 适用于所有".base-detail-page"的详情页面（课程详情、考试详情等），
+// 提供页面头部、内容区域的基础布局和响应式适配
 @use '../design-tokens.scss' as *;
 
 .base-detail-page {

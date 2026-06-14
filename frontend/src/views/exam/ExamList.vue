@@ -285,7 +285,7 @@ import { questionApi } from '@/api/question'
 import { paperApi } from '@/api/paper'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, View } from '@element-plus/icons-vue'
-import { getStatusName, getStatusColor, formatDate, getTypeName as getTypeNameFromFormat, getTypeColor as getTypeColorFromFormat } from '@/utils/format'
+import { getStatusName, getStatusColor, formatDate, getTypeName as getTypeNameFromFormat, getTypeColor as getTypeColorFromFormat, dayjs } from '@/utils/format'
 import { getErrorMessage } from '@/utils/error'
 import { useListPage } from '@/composables/useListPage'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -368,64 +368,39 @@ const examForm = reactive({
 const dateShortcuts = [
   {
     text: '今天 08:00',
-    value: () => {
-      const d = new Date()
-      d.setHours(8, 0, 0, 0)
-      return formatDateTime(d)
-    }
+    value: () => dayjs().hour(8).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
   },
   {
     text: '明天 08:00',
-    value: () => {
-      const d = new Date()
-      d.setDate(d.getDate() + 1)
-      d.setHours(8, 0, 0, 0)
-      return formatDateTime(d)
-    }
+    value: () => dayjs().add(1, 'day').hour(8).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
   },
   {
     text: '三天后 08:00',
-    value: () => {
-      const d = new Date()
-      d.setDate(d.getDate() + 3)
-      d.setHours(8, 0, 0, 0)
-      return formatDateTime(d)
-    }
+    value: () => dayjs().add(3, 'day').hour(8).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
   },
   {
     text: '一周后 08:00',
-    value: () => {
-      const d = new Date()
-      d.setDate(d.getDate() + 7)
-      d.setHours(8, 0, 0, 0)
-      return formatDateTime(d)
-    }
+    value: () => dayjs().add(7, 'day').hour(8).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
   }
 ]
 
-function formatDateTime(d: Date) {
-  const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
-function toPickerValue(apiDate: string | null | undefined): string | null {
-  if (!apiDate) return null
-  return apiDate.replace('T', ' ').substring(0, 19)
-}
-
 function onStartTimeChange() {
   if (examForm.startedAt && examForm.duration > 0) {
-    const start = new Date(examForm.startedAt.replace(' ', 'T'))
-    const end = new Date(start.getTime() + examForm.duration * 60000)
-    examForm.endedAt = formatDateTime(end)
+    const start = dayjs(examForm.startedAt)
+    const end = start.add(examForm.duration, 'minute')
+    examForm.endedAt = end.format('YYYY-MM-DD HH:mm:ss')
   }
 }
 
 function disabledEndDate(date: Date) {
   if (!examForm.startedAt) return false
-  const start = new Date(examForm.startedAt.replace(' ', 'T'))
-  start.setHours(0, 0, 0, 0)
-  return date.getTime() < start.getTime()
+  const start = dayjs(examForm.startedAt).startOf('day')
+  return dayjs(date).isBefore(start, 'day')
+}
+
+function toPickerValue(apiDate: string | null | undefined): string | null {
+  if (!apiDate) return null
+  return apiDate.replace('T', ' ').substring(0, 19)
 }
 
 const examQuestionIds = ref<number[]>([])
@@ -491,7 +466,7 @@ const rules = reactive<FormRules>({
     { required: true, message: '请选择结束时间', trigger: 'change' },
     { validator: (_rule: any, value: any, callback: any) => {
       if (!value || !examForm.startedAt) { callback(); return; }
-      if (new Date(value.replace(' ', 'T')) <= new Date(examForm.startedAt.replace(' ', 'T'))) {
+      if (dayjs(value).isSameOrBefore(dayjs(examForm.startedAt))) {
         callback(new Error('结束时间必须晚于开始时间'))
       } else { callback(); }
     }, trigger: 'change' }

@@ -2,6 +2,10 @@
  * 公共格式化工具函数
  */
 
+import dayjs from 'dayjs'
+
+export { dayjs }
+
 /**
  * 题目类型映射
  */
@@ -229,28 +233,20 @@ export function getGradingStatusColor(status?: string): string | undefined {
  */
 export function formatDate(date?: string | Date | null, format: 'full' | 'date' | 'time' | 'datetime' = 'datetime'): string {
   if (!date) return '-'
-  
-  const d = typeof date === 'string' ? new Date(date) : date
-  
-  if (isNaN(d.getTime())) return '-'
-  
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hours = String(d.getHours()).padStart(2, '0')
-  const minutes = String(d.getMinutes()).padStart(2, '0')
-  const seconds = String(d.getSeconds()).padStart(2, '0')
-  
+
+  const d = dayjs(date)
+  if (!d.isValid()) return '-'
+
   switch (format) {
     case 'date':
-      return `${year}-${month}-${day}`
+      return d.format('YYYY-MM-DD')
     case 'time':
-      return `${hours}:${minutes}:${seconds}`
+      return d.format('HH:mm:ss')
     case 'full':
-      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+      return d.format('YYYY-MM-DD HH:mm:ss')
     case 'datetime':
     default:
-      return d.toLocaleString('zh-CN')
+      return d.format('YYYY-MM-DD HH:mm')
   }
 }
 
@@ -430,25 +426,4 @@ export function isAnswerFilled(answer: AnswerValue): boolean {
   }
   
   return true
-}
-
-export default {
-  getTypeName,
-  getTypeColor,
-  getDifficultyName,
-  getDifficultyColor,
-  getStatusName,
-  getStatusColor,
-  getRoleName,
-  getRoleColor,
-  getUserStatusName,
-  getSessionStatusName,
-  getSessionStatusColor,
-  getGradingStatusName,
-  getGradingStatusColor,
-  formatDate,
-  formatDuration,
-  formatFileSize,
-  formatNumber,
-  formatPercent
 }

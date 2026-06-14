@@ -6,6 +6,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 考试记录响应 DTO，包含学生答题详情
+ */
 @Data
 public class ExamSessionResponse {
 

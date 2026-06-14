@@ -180,6 +180,17 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 公告管理页面组件
+ * 
+ * 公告的发布与管理页面，根据角色提供不同功能：
+ * - 公告列表：分页展示，按类型（系统/考试/课程）、状态（草稿/已发布）、关键字筛选
+ * - 学生只能看到已发布的公告
+ * - 教师/管理员：发布、编辑、删除公告（仅限自己发布的）
+ * - 公告属性：标题、类型、优先级、状态（草稿/发布）、内容
+ * - 公告详情查看（使用 DOMPurify 安全渲染 HTML 内容）
+ */
+
 import { computed, ref, reactive, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { announcementApi } from '@/api/announcement'

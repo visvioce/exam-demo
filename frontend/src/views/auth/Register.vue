@@ -82,6 +82,17 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 注册页面组件
+ * 
+ * 提供新用户注册功能，包含：
+ * - 用户名/密码/确认密码/昵称表单验证
+ * - 密码一致性校验（validateConfirmPassword）
+ * - 注册成功自动跳转到登录页
+ * - 左侧功能特性介绍区
+ * - 注册后默认角色为 STUDENT
+ */
+
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -93,6 +104,7 @@ const authStore = useAuthStore()
 const registerFormRef = ref<FormInstance>()
 const loading = ref(false)
 
+// 注册表单数据
 const registerForm = reactive({
   username: '',
   password: '',
@@ -100,6 +112,7 @@ const registerForm = reactive({
   nickname: ''
 })
 
+/** 自定义密码一致性验证器 */
 const validateConfirmPassword = (_rule: unknown, value: string, callback: (error?: string | Error) => void) => {
   if (value === '') {
     callback(new Error('请再次输入密码'))
@@ -110,6 +123,7 @@ const validateConfirmPassword = (_rule: unknown, value: string, callback: (error
   }
 }
 
+// 表单验证规则
 const rules = reactive<FormRules>({
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
@@ -128,6 +142,7 @@ const rules = reactive<FormRules>({
   ]
 })
 
+/** 处理注册表单提交 */
 async function handleRegister() {
   if (!registerFormRef.value || loading.value) return
 
@@ -141,6 +156,7 @@ async function handleRegister() {
           nickname: registerForm.nickname
         })
         if (success) {
+          // 注册成功后跳转登录页
           router.push('/login')
         }
       } finally {

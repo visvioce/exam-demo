@@ -22,6 +22,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.stream.Collectors;
 
+/**
+ * 全局异常处理器，统一处理各类异常并返回 Result 响应
+ */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -56,6 +59,9 @@ public class GlobalExceptionHandler {
         }
     }
 
+    /**
+     * 处理业务异常
+     */
     @ExceptionHandler(BusinessException.class)
     public Object handleBusinessException(BusinessException e, HttpServletRequest request, HttpServletResponse response) {
         log.warn("业务异常: {}", e.getMessage());
@@ -66,6 +72,9 @@ public class GlobalExceptionHandler {
         return Result.error(e.getCode(), e.getMessage());
     }
 
+    /**
+     * 处理权限不足异常
+     */
     @ExceptionHandler(AccessDeniedException.class)
     public Object handleAccessDeniedException(AccessDeniedException e, HttpServletRequest request, HttpServletResponse response) {
         log.warn("权限不足: {}", e.getMessage());
@@ -76,6 +85,9 @@ public class GlobalExceptionHandler {
         return Result.error(403, "权限不足");
     }
 
+    /**
+     * 处理方法参数校验失败异常（@Valid）
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Object handleMethodArgumentNotValidException(MethodArgumentNotValidException e, HttpServletRequest request, HttpServletResponse response) {
         String message = e.getBindingResult().getFieldErrors().stream()
@@ -89,6 +101,9 @@ public class GlobalExceptionHandler {
         return Result.error(400, message);
     }
 
+    /**
+     * 处理参数绑定异常
+     */
     @ExceptionHandler(BindException.class)
     public Object handleBindException(BindException e, HttpServletRequest request, HttpServletResponse response) {
         String message = e.getFieldErrors().stream()
@@ -102,6 +117,9 @@ public class GlobalExceptionHandler {
         return Result.error(400, message);
     }
 
+    /**
+     * 处理运行时异常
+     */
     @ExceptionHandler(RuntimeException.class)
     public Object handleRuntimeException(RuntimeException e, HttpServletRequest request, HttpServletResponse response) {
         log.error("运行时异常: {}", e.getMessage(), e);
@@ -112,6 +130,9 @@ public class GlobalExceptionHandler {
         return Result.error(500, "系统内部错误，请稍后重试");
     }
 
+    /**
+     * 处理参数类型不匹配异常
+     */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public Object handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException e, HttpServletRequest request, HttpServletResponse response) {
         log.warn("参数类型不匹配: 参数名={}, 值={}, 期望类型={}",
@@ -125,6 +146,9 @@ public class GlobalExceptionHandler {
         return Result.error(400, message);
     }
 
+    /**
+     * 处理请求体不可读异常（JSON 格式错误等）
+     */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public Object handleHttpMessageNotReadableException(HttpMessageNotReadableException e, HttpServletRequest request, HttpServletResponse response) {
         log.warn("请求体解析失败: {}", e.getMessage());
@@ -135,6 +159,9 @@ public class GlobalExceptionHandler {
         return Result.error(400, "请求数据格式错误，请检查请求体是否为有效的JSON格式");
     }
 
+    /**
+     * 处理缺少请求参数异常
+     */
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public Object handleMissingServletRequestParameterException(MissingServletRequestParameterException e, HttpServletRequest request, HttpServletResponse response) {
         log.warn("缺少请求参数: {}", e.getParameterName());
@@ -145,12 +172,18 @@ public class GlobalExceptionHandler {
         return Result.error(400, "缺少必要参数: " + e.getParameterName());
     }
 
+    /**
+     * 处理 404 接口不存在异常
+     */
     @ExceptionHandler(NoHandlerFoundException.class)
     public Object handleNoHandlerFoundException(NoHandlerFoundException e, HttpServletRequest request) {
         log.warn("请求路径不存在: {} {}", request.getMethod(), request.getRequestURL());
         return Result.error(404, "接口不存在: " + request.getMethod() + " " + request.getRequestURL());
     }
 
+    /**
+     * 处理数据库唯一约束冲突异常
+     */
     @ExceptionHandler(DuplicateKeyException.class)
     public Object handleDuplicateKeyException(DuplicateKeyException e, HttpServletRequest request, HttpServletResponse response) {
         log.warn("数据唯一约束冲突: {}", e.getMessage());
@@ -161,6 +194,9 @@ public class GlobalExceptionHandler {
         return Result.error(409, "数据已存在，请勿重复操作");
     }
 
+    /**
+     * 处理乐观锁冲突异常
+     */
     @ExceptionHandler(OptimisticLockingFailureException.class)
     public Object handleOptimisticLockingFailureException(OptimisticLockingFailureException e, HttpServletRequest request, HttpServletResponse response) {
         log.warn("乐观锁冲突: {}", e.getMessage());
@@ -171,6 +207,9 @@ public class GlobalExceptionHandler {
         return Result.error(409, "数据已被他人修改，请刷新后重试");
     }
 
+    /**
+     * 处理其他未捕获的通用异常
+     */
     @ExceptionHandler(Exception.class)
     public Object handleException(Exception e, HttpServletRequest request, HttpServletResponse response) {
         log.error("系统异常: {}", e.getMessage(), e);

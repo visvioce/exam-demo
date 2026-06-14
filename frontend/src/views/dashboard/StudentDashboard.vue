@@ -147,14 +147,14 @@
       </div>
 
       <el-card shadow="never" class="course-panel" v-loading="loadingCourses">
-        <el-row v-if="allCourses.length > 0" :gutter="16">
-          <el-col v-for="course in allCourses.slice(0, 6)" :key="course.id" :xs="24" :sm="12" :lg="8">
-            <el-card shadow="never" class="course-card ui-interactive-surface" @click="router.push(`/course/${course.id}`)">
-              <div class="course-card__cover">
+        <el-row v-if="displayedCourses.length > 0" :gutter="16">
+          <el-col v-for="course in displayedCourses" :key="course.id" :xs="24" :sm="12" :lg="8">
+            <el-card shadow="never" class="course-card ui-interactive-surface">
+              <div class="course-card__cover" @click="router.push(`/course/${course.id}`)">
                 <img v-if="course.coverUrl" :src="course.coverUrl" :alt="course.name" />
                 <div v-else class="course-card__cover-placeholder">课程封面</div>
               </div>
-              <div class="course-card__head">
+              <div class="course-card__head" @click="router.push(`/course/${course.id}`)">
                 <h3 class="ui-title-clamp-2">{{ course.name }}</h3>
                 <div class="course-card__tags">
                   <el-tag size="small" :type="isJoined(course.id) ? 'success' : 'info'">
@@ -163,7 +163,7 @@
                   <el-tag size="small" type="info">{{ course.code }}</el-tag>
                 </div>
               </div>
-              <div class="course-card__meta">
+              <div class="course-card__meta" @click="router.push(`/course/${course.id}`)">
                 <div><span class="label">教师：</span>{{ getTeacherName(course) }}</div>
                 <div><span class="label">学分：</span>{{ course.credits }}</div>
                 <div v-if="course.deadline"><span class="label">截止：</span>{{ formatDate(course.deadline) }}</div>
@@ -172,17 +172,64 @@
                 <el-tag size="small" :type="course.status === 'ACTIVE' ? 'success' : 'info'">
                   {{ course.status === 'ACTIVE' ? '进行中' : '已结束' }}
                 </el-tag>
+                <el-button
+                  v-if="!isJoined(course.id) && course.status === 'ACTIVE'"
+                  type="primary"
+                  size="small"
+                  :loading="joiningId === course.id"
+                  @click.stop="handleJoin(course)"
+                >
+                  加入课程
+                </el-button>
+                <el-button
+                  v-else-if="isJoined(course.id)"
+                  type="danger"
+                  size="small"
+                  plain
+                  :loading="leavingId === course.id"
+                  @click.stop="handleLeave(course)"
+                >
+                  退选
+                </el-button>
               </div>
             </el-card>
           </el-col>
         </el-row>
         <el-empty v-else description="暂无课程" />
+
+        <!-- 加载更多 -->
+        <div v-if="allCourses.length > pageSize" class="load-more">
+          <el-button
+            v-if="displayedCourses.length < allCourses.length"
+            text
+            type="primary"
+            @click="loadMore"
+            :loading="loadingMore"
+          >
+            加载更多 ({{ displayedCourses.length }} / {{ allCourses.length }})
+          </el-button>
+          <span v-else class="no-more">已显示全部 {{ allCourses.length }} 门课程</span>
+        </div>
       </el-card>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
+/**
+ * 学生仪表盘页面
+ * 
+ * 学生登录后的首页，展示：
+ * - 轮播图（系统公告/活动推广）
+ * - 个性化欢迎语（根据时间段变化）和日期显示
+ * - Bento Grid 快捷入口（我的课程、我的考试、公告）
+ * - 最近公告列表（按时间倒序）
+ * - 即将开始的考试列表
+ * - 课程总览（全部课程 + 已参加标注 + 加入/退选操作 + 分页加载更多）
+ * 
+ * 数据来源：轮播图 API、课程 API（我的课程 + 活跃课程合并）、考试 API、公告 API
+ */
+
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -192,22 +239,32 @@ import { examApi } from '@/api/exam'
 import { announcementApi } from '@/api/announcement'
 import { Reading, Edit, Bell, Timer } from '@element-plus/icons-vue'
 import type { Carousel, Course, Exam, Announcement } from '@/types'
-import { formatDate } from '@/utils/format'
+import { formatDate, dayjs } from '@/utils/format'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const carousels = ref<Carousel[]>([])
-const allCourses = ref<Course[]>([])
-const myCourses = ref<Course[]>([])
-const exams = ref<Exam[]>([])
-const announcements = ref<Announcement[]>([])
+const allCourses = ref<Course[]>([])       // 所有可查看的课程（我的 + 活跃课程合并去重）
+const myCourses = ref<Course[]>([])        // 已加入的课程
+const exams = ref<Exam[]>([])              // 我的考试
+const announcements = ref<Announcement[]>([]) // 公告列表
 const loadingCourses = ref(false)
 const loadingExams = ref(false)
 const loadingAnnouncements = ref(false)
+const loadingMore = ref(false)
+const joiningId = ref<number | null>(null)   // 当前正在加入的课程 ID
+const leavingId = ref<number | null>(null)   // 当前正在退选的课程 ID
+const pageSize = ref(6)     // 每页显示课程数
+const currentPage = ref(1)  // 当前课程页码
 
 const joinedIds = computed(() => new Set(myCourses.value.map((course) => course.id)))
 const joinedCourseCount = computed(() => myCourses.value.length)
+
+const displayedCourses = computed(() => {
+  return allCourses.value.slice(0, currentPage.value * pageSize.value)
+})
 
 const pendingExamCount = computed(() => {
   return exams.value.filter(e =>
@@ -216,18 +273,17 @@ const pendingExamCount = computed(() => {
 })
 
 const upcomingExams = computed(() => {
-  const now = new Date().getTime()
+  const now = dayjs()
   return exams.value
     .filter(e => {
-      const startTime = new Date(e.startedAt).getTime()
-      return e.status === 'PUBLISHED' && startTime > now
+      return e.status === 'PUBLISHED' && dayjs(e.startedAt).isAfter(now)
     })
-    .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
+    .sort((a, b) => dayjs(a.startedAt).valueOf() - dayjs(b.startedAt).valueOf())
     .slice(0, 5)
 })
 
 const greeting = computed(() => {
-  const hour = new Date().getHours()
+  const hour = dayjs().hour()
   if (hour < 6) return '夜深了'
   if (hour < 9) return '早上好'
   if (hour < 12) return '上午好'
@@ -253,13 +309,9 @@ function getTeacherName(course: Course) {
 }
 
 function getCurrentDate() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
+  const now = dayjs()
   const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-  const weekDay = weekDays[now.getDay()]
-  return `${year}.${month}.${day} · ${weekDay}`
+  return `${now.format('YYYY.MM.DD')} · ${weekDays[now.day()]}`
 }
 
 function handleCarouselClick(item: Carousel) {
@@ -308,28 +360,22 @@ function getExamStatusLabel(status: string) {
 
 function formatDateTime(dateStr?: string) {
   if (!dateStr) return ''
-  const date = new Date(dateStr)
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-  return `${month}-${day} ${hour}:${minute}`
+  return dayjs(dateStr).format('MM-DD HH:mm')
 }
 
 function formatRelativeTime(dateStr?: string) {
   if (!dateStr) return ''
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
+  const date = dayjs(dateStr)
+  const now = dayjs()
+  const minutes = now.diff(date, 'minute')
+  const hours = now.diff(date, 'hour')
+  const days = now.diff(date, 'day')
 
   if (minutes < 1) return '刚刚'
   if (minutes < 60) return `${minutes}分钟前`
   if (hours < 24) return `${hours}小时前`
   if (days < 7) return `${days}天前`
-  return date.toLocaleDateString('zh-CN')
+  return date.format('YYYY年M月D日')
 }
 
 async function loadCarousels() {
@@ -366,11 +412,51 @@ async function loadCourses() {
       if (joinedDelta !== 0) return joinedDelta
       return a.name.localeCompare(b.name, 'zh-CN')
     })
+    currentPage.value = 1
   } catch {
     allCourses.value = []
     myCourses.value = []
   } finally {
     loadingCourses.value = false
+  }
+}
+
+function loadMore() {
+  loadingMore.value = true
+  setTimeout(() => {
+    currentPage.value++
+    loadingMore.value = false
+  }, 200)
+}
+
+async function handleJoin(course: Course) {
+  joiningId.value = course.id
+  try {
+    await courseApi.join(course.id)
+    ElMessage.success('加入课程成功')
+    myCourses.value.push(course)
+  } catch {
+    ElMessage.error('加入课程失败')
+  } finally {
+    joiningId.value = null
+  }
+}
+
+async function handleLeave(course: Course) {
+  try {
+    await ElMessageBox.confirm('确定要退选该课程吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    leavingId.value = course.id
+    await courseApi.leave(course.id)
+    ElMessage.success('退选成功')
+    myCourses.value = myCourses.value.filter(c => c.id !== course.id)
+  } catch {
+    // 取消退选
+  } finally {
+    leavingId.value = null
   }
 }
 
@@ -391,7 +477,7 @@ async function loadAnnouncements() {
   try {
     const res = await announcementApi.list()
     announcements.value = (res.data || []).sort((a, b) => {
-      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      return dayjs(b.createdAt || 0).valueOf() - dayjs(a.createdAt || 0).valueOf()
     })
   } catch {
     announcements.value = []
@@ -808,6 +894,22 @@ onMounted(() => {
   &__foot {
     border-top: 1px solid $border-light;
     padding-top: $spacing-md;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+.load-more {
+  display: flex;
+  justify-content: center;
+  padding-top: $spacing-lg;
+  border-top: 1px solid $border-light;
+  margin-top: $spacing-md;
+
+  .no-more {
+    font-size: $font-size-sm;
+    color: $text-tertiary;
   }
 }
 

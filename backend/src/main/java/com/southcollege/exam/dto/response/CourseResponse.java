@@ -5,6 +5,9 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * 课程信息响应 DTO
+ */
 @Data
 public class CourseResponse {
 

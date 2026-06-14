@@ -131,6 +131,19 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 手动组卷表单组件
+ * 
+ * 从题库中手动选择题目组成试卷：
+ * - 试卷基本信息（名称、描述）
+ * - 题目管理：支持添加/删除/去重/清空操作
+ * - 题库选择对话框：支持按类型/难度/学科/关键字筛选，跨页多选
+ * - 编辑模式：支持传入初始数据回填（通过 initialData prop）
+ * - 重复题目检测与一键去重
+ * 
+ * 通过 defineExpose 暴露 handleSubmit 方法供父组件调用。
+ */
+
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'

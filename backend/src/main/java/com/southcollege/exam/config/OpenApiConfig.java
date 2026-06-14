@@ -9,9 +9,15 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Swagger/OpenAPI 配置类
+ */
 @Configuration
 public class OpenApiConfig {
 
+    /**
+     * 配置 OpenAPI 文档信息，包括标题、版本、JWT 认证方案
+     */
     @Bean
     @ConditionalOnProperty(name = "springdoc.swagger-ui.enabled", havingValue = "true", matchIfMissing = true)
     public OpenAPI openAPI() {

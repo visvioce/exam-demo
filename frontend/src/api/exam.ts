@@ -1,4 +1,4 @@
-/**
+ /**
  * 考试管理 API 模块
  *
  * @module api/exam
@@ -193,10 +193,6 @@ export const examSessionApi = {
     return request.post("/exam-sessions/grade", data);
   },
 
-  // 按考试批量自动阅卷（客观题重评）
-  autoGradeByExam(examId: number) {
-    return request.post<number>(`/exam-sessions/exam/${examId}/auto-grade`);
-  },
 
   // 获取考试结果详情
   getExamResult(id: number) {

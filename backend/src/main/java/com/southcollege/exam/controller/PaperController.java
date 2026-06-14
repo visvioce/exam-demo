@@ -1,13 +1,12 @@
 package com.southcollege.exam.controller;
 
-import com.southcollege.exam.annotation.RequireRole;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.southcollege.exam.dto.request.PageRequest;
 import com.southcollege.exam.dto.request.PaperSaveRequest;
 import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.dto.response.PaperResponse;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.entity.Paper;
-import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.service.PaperService;
 import com.southcollege.exam.utils.SecurityUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -26,7 +25,7 @@ import java.util.List;
 @Tag(name = "试卷管理", description = "试卷增删改查")
 @RestController
 @RequestMapping("/api/papers")
-@RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+@PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
 public class PaperController {
 
     private final PaperService paperService;
@@ -56,16 +55,9 @@ public class PaperController {
     @Operation(summary = "获取试卷详情", description = "根据ID获取试卷详细信息")
     @GetMapping("/{id}")
     public Result<PaperResponse> getById(@PathVariable Long id, HttpServletRequest request) {
-        Paper paper = paperService.getById(id);
-        if (paper == null) {
-            throw new com.southcollege.exam.exception.BusinessException("试卷不存在");
-        }
-
         Long userId = SecurityUtil.getCurrentUserId(request);
-        if (paper.getTeacherId() == null || !paper.getTeacherId().equals(userId)) {
-            throw new com.southcollege.exam.exception.BusinessException("无权查看该试卷");
-        }
-
+        paperService.checkOwnership(id, userId);
+        Paper paper = paperService.getById(id);
         return Result.success(paperService.convertToResponse(paper));
     }
 
@@ -93,9 +85,8 @@ public class PaperController {
     @PutMapping("/{id}")
     public Result<Boolean> update(@PathVariable Long id, @Valid @RequestBody PaperSaveRequest paperSaveRequest, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
 
-        paperService.checkOwnership(id, userId, userRole);
+        paperService.checkOwnership(id, userId);
 
         Paper originalPaper = paperService.getById(id);
         if (originalPaper == null) {
@@ -116,8 +107,7 @@ public class PaperController {
     @DeleteMapping("/{id}")
     public Result<Boolean> delete(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        paperService.checkOwnership(id, userId, userRole);
+        paperService.checkOwnership(id, userId);
 
         return Result.success(paperService.removeById(id));
     }

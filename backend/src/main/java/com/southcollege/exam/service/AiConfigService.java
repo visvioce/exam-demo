@@ -5,9 +5,10 @@ import com.southcollege.exam.dto.response.AiConfigResponse;
 import com.southcollege.exam.entity.AiConfig;
 import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.mapper.AiConfigMapper;
+import com.southcollege.exam.mapstruct.AiConfigDtoMapper;
 import com.southcollege.exam.utils.AesUtil;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +23,10 @@ import java.util.List;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class AiConfigService extends ServiceImpl<AiConfigMapper, AiConfig> {
+
+    private final AiConfigDtoMapper aiConfigDtoMapper;
 
     /**
      * 查询用户的全部AI配置，API Key自动解密
@@ -361,15 +365,12 @@ public class AiConfigService extends ServiceImpl<AiConfigMapper, AiConfig> {
 
     public AiConfigResponse convertToResponse(AiConfig entity) {
         if (entity == null) return null;
-        AiConfigResponse response = new AiConfigResponse();
-        BeanUtils.copyProperties(entity, response);
-        response.setApiKey(maskApiKey(entity.getApiKey()));
-        return response;
+        return aiConfigDtoMapper.toResponse(entity);
     }
 
     public List<AiConfigResponse> convertToResponses(List<AiConfig> entities) {
         if (entities == null || entities.isEmpty()) return List.of();
-        return entities.stream().map(this::convertToResponse).toList();
+        return aiConfigDtoMapper.toResponseList(entities);
     }
 
     /**

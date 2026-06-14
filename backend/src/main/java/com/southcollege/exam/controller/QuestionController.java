@@ -1,13 +1,13 @@
 package com.southcollege.exam.controller;
 
-import com.southcollege.exam.annotation.RequireRole;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.southcollege.exam.dto.request.PageRequest;
 import com.southcollege.exam.dto.request.QuestionSaveRequest;
 import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.dto.response.QuestionResponse;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.entity.Question;
-import com.southcollege.exam.enums.RoleEnum;
+
 import com.southcollege.exam.service.QuestionService;
 import com.southcollege.exam.utils.SecurityUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -25,7 +25,7 @@ import java.util.List;
 @Tag(name = "题库管理", description = "题目增删改查")
 @RestController
 @RequestMapping("/api/questions")
-@RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+@PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
 public class QuestionController {
 
     private final QuestionService questionService;
@@ -52,25 +52,16 @@ public class QuestionController {
             @Parameter(description = "搜索关键字") @RequestParam(required = false) String keyword,
             HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
         return Result.success(questionService.convertToPageResult(
-                questionService.page(pageRequest, teacherId, type, keyword, difficulty, userId, userRole)));
+                questionService.page(pageRequest, teacherId, type, keyword, difficulty, userId)));
     }
 
     @Operation(summary = "获取题目详情", description = "根据ID获取题目详细信息")
     @GetMapping("/{id}")
     public Result<QuestionResponse> getById(@PathVariable Long id, HttpServletRequest request) {
-        Question question = questionService.getById(id);
-        if (question == null) {
-            return Result.error("题目不存在");
-        }
-
         Long userId = SecurityUtil.getCurrentUserId(request);
-        if (question.getTeacherId() == null || !question.getTeacherId().equals(userId)) {
-            return Result.error("无权查看该题目");
-        }
-
-        return Result.success(questionService.convertToResponse(question));
+        questionService.checkOwnership(id, userId);
+        return Result.success(questionService.convertToResponse(questionService.getById(id)));
     }
 
     @Operation(summary = "创建题目", description = "新增一道题目")
@@ -94,8 +85,7 @@ public class QuestionController {
     @PutMapping("/{id}")
     public Result<Boolean> update(@PathVariable Long id, @Valid @RequestBody QuestionSaveRequest questionSaveRequest, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        questionService.checkOwnership(id, userId, userRole);
+        questionService.checkOwnership(id, userId);
 
         Question original = questionService.getById(id);
         if (original == null) {
@@ -134,8 +124,7 @@ public class QuestionController {
     @DeleteMapping("/{id}")
     public Result<Boolean> delete(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        questionService.checkOwnership(id, userId, userRole);
+        questionService.checkOwnership(id, userId);
         questionService.removeById(id);
         return Result.success(true);
     }

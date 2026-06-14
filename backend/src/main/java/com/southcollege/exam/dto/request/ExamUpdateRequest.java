@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * 考试更新请求
+ * 考试更新请求 DTO
  */
 @Data
 @Schema(description = "考试更新请求")

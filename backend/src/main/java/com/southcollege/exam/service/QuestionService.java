@@ -12,7 +12,8 @@ import com.southcollege.exam.entity.Question;
 import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.mapper.QuestionMapper;
-import org.springframework.beans.BeanUtils;
+import com.southcollege.exam.mapstruct.QuestionDtoMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -20,7 +21,10 @@ import java.util.List;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
 public class QuestionService extends ServiceImpl<QuestionMapper, Question> {
+
+    private final QuestionDtoMapper questionDtoMapper;
 
     @Transactional
     @Override
@@ -78,6 +82,15 @@ public class QuestionService extends ServiceImpl<QuestionMapper, Question> {
     }
 
     /**
+     * 统计指定教师创建的题目数量
+     * @param teacherId 教师ID
+     * @return 题目数量
+     */
+    public long countByTeacherId(Long teacherId) {
+        return lambdaQuery().eq(Question::getTeacherId, teacherId).count();
+    }
+
+    /**
      * 查询指定类型的所有题目
      */
     public List<Question> getByType(String type) {
@@ -97,11 +110,7 @@ public class QuestionService extends ServiceImpl<QuestionMapper, Question> {
     /**
      * 校验题目操作权限：管理员和教师权限相同，只能操作自己的题目
      */
-    public void checkOwnership(Long questionId, Long userId, String userRole) {
-        RoleEnum role = RoleEnum.fromCode(userRole);
-        if (!role.hasPermission(RoleEnum.TEACHER)) {
-            throw new BusinessException("无权操作该题目");
-        }
+    public void checkOwnership(Long questionId, Long userId) {
         Question question = getById(questionId);
         if (question == null) {
             throw new BusinessException("题目不存在");
@@ -115,13 +124,10 @@ public class QuestionService extends ServiceImpl<QuestionMapper, Question> {
      * 分页查询题目：管理员和教师权限相同，只能查看自己的题目
      */
     public PageResult<Question> page(PageRequest pageRequest, Long teacherId, String type, String keyword,
-                                      String difficulty, Long currentUserId, String currentUserRole) {
+                                      String difficulty, Long currentUserId) {
         Page<Question> page = new Page<>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<Question> wrapper = new LambdaQueryWrapper<>();
 
-        if (!RoleEnum.fromCode(currentUserRole).hasPermission(RoleEnum.TEACHER)) {
-            return PageResult.empty(pageRequest.getCurrent(), pageRequest.getSize());
-        }
         if (teacherId != null && !teacherId.equals(currentUserId)) {
             return PageResult.empty(pageRequest.getCurrent(), pageRequest.getSize());
         }
@@ -151,31 +157,8 @@ public class QuestionService extends ServiceImpl<QuestionMapper, Question> {
     }
 
     public QuestionResponse convertToResponse(Question question, String userRole) {
-        if (question == null) {
-            return null;
-        }
-        QuestionResponse response = new QuestionResponse();
-        BeanUtils.copyProperties(question, response);
-
-        // BeanUtils.copyProperties 在 Spring 6.x 中无法复制泛型类型不同的 List（如 Question.Option → QuestionResponse.OptionResponse）
-        // 需要手动复制这些字段
-        if (question.getOptions() != null) {
-            response.setOptions(question.getOptions().stream().map(opt -> {
-                QuestionResponse.OptionResponse optionResponse = new QuestionResponse.OptionResponse();
-                optionResponse.setId(opt.getId());
-                optionResponse.setText(opt.getText());
-                return optionResponse;
-            }).toList());
-        }
-        if (question.getScoringCriteria() != null) {
-            response.setScoringCriteria(question.getScoringCriteria().stream().map(c -> {
-                QuestionResponse.ScoringCriterionResponse cr = new QuestionResponse.ScoringCriterionResponse();
-                cr.setPoint(c.getPoint());
-                cr.setScore(c.getScore());
-                return cr;
-            }).toList());
-        }
-
+        if (question == null) return null;
+        QuestionResponse response = questionDtoMapper.toResponse(question);
         if (RoleEnum.STUDENT.getCode().equals(userRole)) {
             response.setCorrectAnswer(null);
             response.setExplanation(null);
@@ -197,17 +180,6 @@ public class QuestionService extends ServiceImpl<QuestionMapper, Question> {
     }
 
     public PageResult<QuestionResponse> convertToPageResult(PageResult<Question> pageResult) {
-        if (pageResult == null) {
-            return PageResult.empty(1, 10);
-        }
-        PageResult<QuestionResponse> response = new PageResult<>();
-        response.setRecords(convertToResponses(pageResult.getRecords()));
-        response.setTotal(pageResult.getTotal());
-        response.setSize(pageResult.getSize());
-        response.setCurrent(pageResult.getCurrent());
-        response.setPages(pageResult.getPages());
-        response.setHasNext(pageResult.getHasNext());
-        response.setHasPrevious(pageResult.getHasPrevious());
-        return response;
+        return PageResult.map(pageResult, this::convertToResponses);
     }
 }

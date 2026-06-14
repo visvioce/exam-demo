@@ -6,6 +6,9 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * AI 配置保存请求 DTO
+ */
 @Data
 public class AiConfigSaveRequest {
 

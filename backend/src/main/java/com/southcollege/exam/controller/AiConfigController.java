@@ -1,11 +1,11 @@
 package com.southcollege.exam.controller;
 
-import com.southcollege.exam.annotation.RequireRole;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.southcollege.exam.dto.request.AiConfigSaveRequest;
 import com.southcollege.exam.dto.response.AiConfigResponse;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.entity.AiConfig;
-import com.southcollege.exam.enums.RoleEnum;
+
 import com.southcollege.exam.service.AiConfigService;
 import com.southcollege.exam.utils.SecurityUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,7 +27,7 @@ import java.util.List;
 @Tag(name = "AI 配置管理", description = "AI API 配置增删改查")
 @RestController
 @RequestMapping("/api/ai-configs")
-@RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+@PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
 public class AiConfigController {
 
     private final AiConfigService aiConfigService;

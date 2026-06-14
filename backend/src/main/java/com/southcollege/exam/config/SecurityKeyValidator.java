@@ -36,10 +36,17 @@ public class SecurityKeyValidator {
             "SouthCollege@2024"
     };
 
+    /**
+     * 构造安全密钥验证器
+     * @param environment Spring 环境对象，用于获取当前激活的 Profile
+     */
     public SecurityKeyValidator(Environment environment) {
         this.environment = environment;
     }
 
+    /**
+     * 在应用启动就绪后校验 JWT 和 AES 密钥安全性，生产环境不安全的密钥将导致启动失败
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void validateSecurityKeys() {
         boolean isProduction = isProductionEnvironment();

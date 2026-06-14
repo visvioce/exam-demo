@@ -1,10 +1,10 @@
 package com.southcollege.exam.controller;
 
-import com.southcollege.exam.annotation.RequireRole;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.southcollege.exam.dto.request.GenerateQuestionRequest;
 import com.southcollege.exam.dto.response.GeneratedQuestionResponse;
 import com.southcollege.exam.dto.response.Result;
-import com.southcollege.exam.enums.RoleEnum;
+
 import com.southcollege.exam.service.AiQuestionService;
 import com.southcollege.exam.utils.SecurityUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -34,7 +34,7 @@ public class AiQuestionController {
 
     @Operation(summary = "AI生成题目", description = "使用AI模型自动批量生成考试题目")
     @PostMapping("/generate-questions")
-    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
     public Result<GeneratedQuestionResponse> generateQuestions(@Valid @RequestBody GenerateQuestionRequest request,
                                                                 HttpServletRequest servletRequest) {
         Long userId = SecurityUtil.getCurrentUserId(servletRequest);
@@ -50,7 +50,7 @@ public class AiQuestionController {
     }
 
     @PostMapping(value = "/generate-questions-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
     @Operation(summary = "流式生成题目", description = "使用SSE实时推送AI生成的原始文本")
     public Flux<ServerSentEvent<String>> generateQuestionsStream(@Valid @RequestBody GenerateQuestionRequest request,
                                                                   HttpServletRequest servletRequest) {

@@ -75,4 +75,29 @@ public class PageResult<T> {
         result.setHasPrevious(current > 1);
         return result;
     }
+
+    /**
+     * 将 PageResult 的 records 列表通过 mapper 函数转换为另一种类型的分页结果，
+     * 复用原有的分页元数据（total、pages、current、size、hasNext、hasPrevious）。
+     *
+     * @param source 源分页结果
+     * @param mapper 将源类型列表映射为目标类型列表的函数
+     * @param <T>    源类型
+     * @param <R>    目标类型
+     * @return 转换后的分页结果
+     */
+    public static <T, R> PageResult<R> map(PageResult<T> source, java.util.function.Function<List<T>, List<R>> mapper) {
+        if (source == null) {
+            return PageResult.empty(1, 10);
+        }
+        PageResult<R> result = new PageResult<>();
+        result.setRecords(mapper.apply(source.getRecords()));
+        result.setTotal(source.getTotal());
+        result.setSize(source.getSize());
+        result.setCurrent(source.getCurrent());
+        result.setPages(source.getPages());
+        result.setHasNext(source.getHasNext());
+        result.setHasPrevious(source.getHasPrevious());
+        return result;
+    }
 }

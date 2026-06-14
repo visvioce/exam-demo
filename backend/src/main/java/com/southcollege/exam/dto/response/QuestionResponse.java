@@ -5,6 +5,9 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.util.List;
 
+/**
+ * 题目信息响应 DTO，包含选项和评分标准
+ */
 @Data
 public class QuestionResponse {
 

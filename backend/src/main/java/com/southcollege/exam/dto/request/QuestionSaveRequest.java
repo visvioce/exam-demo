@@ -8,6 +8,9 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * 题目保存请求 DTO
+ */
 @Data
 public class QuestionSaveRequest {
 

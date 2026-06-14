@@ -78,6 +78,19 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 自动组卷表单组件
+ * 
+ * 通过配置规则自动从题库中抽取题目生成试卷：
+ * - 试卷基本信息（名称、描述）
+ * - 题目配置表格：支持多行，每行指定学科、题型、难度、题目数量
+ * - 实时查询可用题目数，限制题数不能超过可用量
+ * - 题型重复检测：同一种题型只能有一行配置
+ * - 总题数统计
+ * 
+ * 通过 defineExpose 暴露 handleSubmit 方法供父组件调用。
+ */
+
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'

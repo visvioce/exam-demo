@@ -5,6 +5,9 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.util.List;
 
+/**
+ * 考试用题目响应 DTO，包含分值信息（不含正确答案）
+ */
 @Data
 public class QuestionForExamResponse {
 

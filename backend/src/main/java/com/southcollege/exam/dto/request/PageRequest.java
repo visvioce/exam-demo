@@ -6,7 +6,7 @@ import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 /**
- * 分页请求基类
+ * 分页请求 DTO
  */
 @Data
 public class PageRequest {

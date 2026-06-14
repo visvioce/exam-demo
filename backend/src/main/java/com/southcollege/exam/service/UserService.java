@@ -11,21 +11,19 @@ import com.southcollege.exam.dto.response.UserResponse;
 import com.southcollege.exam.entity.User;
 import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.mapper.UserMapper;
+import com.southcollege.exam.mapstruct.UserDtoMapper;
 import com.southcollege.exam.enums.UserStatusEnum;
 import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.entity.Announcement;
 import com.southcollege.exam.entity.Course;
-import com.southcollege.exam.entity.CourseMember;
 import com.southcollege.exam.entity.Exam;
 import com.southcollege.exam.entity.ExamSession;
 import com.southcollege.exam.entity.Paper;
 import com.southcollege.exam.entity.Question;
 import com.southcollege.exam.enums.ExamSessionStatusEnum;
-import com.southcollege.exam.utils.AesUtil;
 import com.southcollege.exam.utils.JwtUtil;
 import com.southcollege.exam.utils.PasswordUtil;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,12 +50,14 @@ public class UserService extends ServiceImpl<UserMapper, User> {
     private final ExamService examService;
     private final AnnouncementService announcementService;
     private final CourseMemberService courseMemberService;
+    private final UserDtoMapper userDtoMapper;
 
     public UserService(JwtUtil jwtUtil, @Lazy ExamSessionService examSessionService,
                        @Lazy CourseService courseService, @Lazy QuestionService questionService,
                        @Lazy PaperService paperService, @Lazy ExamService examService,
                        @Lazy AnnouncementService announcementService,
-                       CourseMemberService courseMemberService) {
+                       CourseMemberService courseMemberService,
+                       UserDtoMapper userDtoMapper) {
         this.jwtUtil = jwtUtil;
         this.examSessionService = examSessionService;
         this.courseService = courseService;
@@ -66,6 +66,7 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         this.examService = examService;
         this.announcementService = announcementService;
         this.courseMemberService = courseMemberService;
+        this.userDtoMapper = userDtoMapper;
     }
 
     /**
@@ -316,46 +317,23 @@ public class UserService extends ServiceImpl<UserMapper, User> {
      * 将 User 实体转换为 UserResponse 响应对象
      */
     public UserResponse convertToResponse(User user) {
-        if (user == null) {
-            return null;
-        }
-        UserResponse response = new UserResponse();
-        BeanUtils.copyProperties(user, response);
-        if (user.getStatus() != null) {
-            response.setStatus(user.getStatus().getCode());
-        }
-        return response;
+        if (user == null) return null;
+        return userDtoMapper.toResponse(user);
     }
 
     /**
      * 批量将 User 实体列表转换为 UserResponse 响应列表
      */
     public List<UserResponse> convertToResponses(List<User> users) {
-        if (users == null || users.isEmpty()) {
-            return List.of();
-        }
-        return users.stream()
-                .map(this::convertToResponse)
-                .toList();
+        if (users == null || users.isEmpty()) return List.of();
+        return userDtoMapper.toResponseList(users);
     }
 
     /**
      * 将用户分页结果转换为响应分页结果
      */
     public PageResult<UserResponse> convertToPageResult(PageResult<User> pageResult) {
-        if (pageResult == null) {
-            return PageResult.empty(1, 10);
-        }
-
-        PageResult<UserResponse> response = new PageResult<>();
-        response.setRecords(convertToResponses(pageResult.getRecords()));
-        response.setTotal(pageResult.getTotal());
-        response.setSize(pageResult.getSize());
-        response.setCurrent(pageResult.getCurrent());
-        response.setPages(pageResult.getPages());
-        response.setHasNext(pageResult.getHasNext());
-        response.setHasPrevious(pageResult.getHasPrevious());
-        return response;
+        return PageResult.map(pageResult, this::convertToResponses);
     }
 
     /**

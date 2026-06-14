@@ -5,6 +5,9 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.util.List;
 
+/**
+ * AI 生成题目响应 DTO
+ */
 @Data
 public class GeneratedQuestionResponse {
     private List<QuestionItem> questions;

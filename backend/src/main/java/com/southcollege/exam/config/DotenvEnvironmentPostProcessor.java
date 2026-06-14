@@ -11,9 +11,15 @@ import org.springframework.core.env.MapPropertySource;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * 环境变量后处理器，加载 .env 文件到 Spring 环境
+ */
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class DotenvEnvironmentPostProcessor implements EnvironmentPostProcessor {
 
+    /**
+     * 在 Spring 环境准备阶段加载 .env 文件中的配置，写入系统属性和 Spring 环境变量
+     */
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         Dotenv dotenv = Dotenv.configure()

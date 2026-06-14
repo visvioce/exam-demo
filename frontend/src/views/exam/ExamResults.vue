@@ -14,9 +14,6 @@
         <div class="card-header">
           <span>学生考试记录</span>
           <div class="header-actions">
-            <el-button type="warning" @click="handleAutoGrade" :loading="autoGrading">
-              自动阅卷
-            </el-button>
             <el-button type="primary" @click="openBatchGradeDialog" :disabled="!canBatchGrade">
               阅卷
             </el-button>
@@ -232,7 +229,6 @@ const authStore = useAuthStore()
 const loading = ref(false)
 const gradingLoading = ref(false)
 const submittingGrades = ref(false)
-const autoGrading = ref(false)
 const gradeDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
 const detailLoading = ref(false)
@@ -513,27 +509,6 @@ async function handleSubmitBatchGrades() {
     ElMessage.error(getErrorMessage(error, '评分失败'))
   } finally {
     submittingGrades.value = false
-  }
-}
-
-async function handleAutoGrade() {
-  autoGrading.value = true
-  try {
-    const res = await examSessionApi.autoGradeByExam(examId.value)
-    const processed = res.data ?? 0
-    if (processed > 0) {
-      ElMessage.success(`自动阅卷完成，共处理 ${processed} 份答卷`)
-    } else {
-      ElMessage.warning('没有可自动阅卷的已提交答卷')
-    }
-    await loadSessions()
-    if (gradeDialogVisible.value) {
-      await loadBatchGradeRows()
-    }
-  } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '自动阅卷失败'))
-  } finally {
-    autoGrading.value = false
   }
 }
 

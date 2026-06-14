@@ -156,6 +156,24 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 个人中心页面组件
+ * 
+ * 用户个人信息管理页面，分为左右两栏：
+ * 
+ * 左侧 - 用户信息卡片：
+ * - 头像、昵称、用户名、角色标签
+ * - 统计数据（参加考试数、加入课程数、平均分）- 仅学生可见
+ * 
+ * 右侧 - 设置标签页：
+ * ● 基本信息：修改昵称（用户名和角色不可修改）
+ * ● 修改密码：旧密码验证 + 新密码 + 确认密码
+ * ● 考试记录（仅学生）：历史考试列表，含得分、状态，可查看回顾
+ * ● 我的课程（仅学生）：已加入课程列表，可跳转课程详情
+ * 
+ * 数据来源：authApi（个人信息、修改密码）、examSessionApi（考试记录）、courseApi（我的课程）
+ */
+
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'

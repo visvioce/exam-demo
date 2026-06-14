@@ -79,6 +79,17 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 登录页面组件
+ * 
+ * 提供用户登录功能，包含：
+ * - 用户名/密码表单验证
+ * - 登录状态管理（通过 useAuthStore）
+ * - 登录成功后跳转到目标页面或仪表盘
+ * - 左侧品牌展示区和名言轮播
+ * - 每10秒自动切换名言
+ */
+
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -91,16 +102,19 @@ const authStore = useAuthStore()
 const loginFormRef = ref<FormInstance>()
 const loading = ref(false)
 
+// 登录表单数据
 const loginForm = reactive({
   username: '',
   password: ''
 })
 
+// 表单验证规则
 const rules = reactive<FormRules>({
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 })
 
+// 左侧名言轮播数据
 const quotes = [
   { text: '学而不思则罔，思而不学则殆', author: '孔子' },
   { text: '书山有路勤为径，学海无涯苦作舟', author: '韩愈' },
@@ -127,18 +141,22 @@ const quotes = [
 const currentQuoteIndex = ref(0)
 let quoteTimer: ReturnType<typeof setInterval> | null = null
 
+/** 切换到下一条名言 */
 function nextQuote() {
   currentQuoteIndex.value = (currentQuoteIndex.value + 1) % quotes.length
 }
 
+// 启动名言轮播定时器
 onMounted(() => {
   quoteTimer = setInterval(nextQuote, 10000)
 })
 
+// 清理定时器
 onUnmounted(() => {
   if (quoteTimer) clearInterval(quoteTimer)
 })
 
+/** 处理登录表单提交 */
 async function handleLogin() {
   if (!loginFormRef.value || loading.value) return
   await loginFormRef.value.validate(async (valid) => {
@@ -147,6 +165,7 @@ async function handleLogin() {
       try {
         const success = await authStore.login(loginForm)
         if (success) {
+          // 登录成功后跳转到 redirect 参数指定的页面，或默认跳转到仪表盘
           router.push((route.query.redirect as string) || '/dashboard')
         }
       } finally {

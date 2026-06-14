@@ -24,6 +24,7 @@
     <!-- 题目区域 -->
     <div class="questions-area" v-if="!loading && questions.length > 0">
       <div v-for="(question, index) in questions" :key="question.questionId" class="question-card"
+        :ref="(el: unknown) => { if (el) questionRefs[index] = el as HTMLElement }"
         :class="{ 'correct': isCorrect(index), 'wrong': isWrong(index) }">
         <div class="question-header">
           <span class="question-index">{{ index + 1 }}.</span>
@@ -288,11 +289,10 @@ function isUserAnswer(index: number, optionId: string): boolean {
   return String(detail.answer) === optionId
 }
 
+const questionRefs = ref<(HTMLElement | null)[]>([])
+
 function scrollToQuestion(index: number) {
-  const element = document.querySelectorAll('.question-card')[index]
-  if (element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
+  questionRefs.value[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 async function loadData() {

@@ -7,6 +7,9 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 
+/**
+ * 课程保存请求 DTO
+ */
 @Data
 public class CourseSaveRequest {
 

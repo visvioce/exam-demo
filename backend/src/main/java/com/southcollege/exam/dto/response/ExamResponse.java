@@ -7,6 +7,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 考试响应 DTO，包含考试基本信息和统计字段（参与人数、提交数、待批阅数）
+ */
 @Data
 public class ExamResponse {
 

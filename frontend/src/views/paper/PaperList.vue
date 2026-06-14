@@ -97,6 +97,20 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 试卷管理页面组件
+ * 
+ * 教师/管理员的试卷管理页面，包含：
+ * ● 试卷列表 - 分页展示，按关键字搜索
+ * ● 创建试卷 - 支持两种组卷方式：
+ *   - 手动组卷（ManualPaperForm）：从题库中选择题目组成试卷
+ *   - 自动组卷（AutoPaperForm）：按学科/题型/难度配置规则，系统自动抽取题目
+ * ● 编辑试卷（仅支持手动组卷方式编辑）
+ * ● 查看试卷详情（通过 PaperDetail 组件展示题目列表）
+ * ● 删除试卷
+ * ● 权限控制：仅 ADMIN/TEACHER 可管理，且只能管理自己创建的试卷
+ */
+
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { paperApi } from '@/api/paper'

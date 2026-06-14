@@ -5,6 +5,9 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+/**
+ * 轮播图保存请求 DTO
+ */
 @Data
 public class CarouselSaveRequest {
 

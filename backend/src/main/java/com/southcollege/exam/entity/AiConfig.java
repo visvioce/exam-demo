@@ -10,6 +10,13 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * AI 配置实体
+ * <p>表示用户级别的 AI API 配置，包含API地址、密钥和可用模型列表。
+ * 每个用户可配置多个模型，并可指定当前激活的模型，通过 {@link #hasActiveModel()} 判断是否可用。</p>
+ *
+ * @see com.southcollege.exam.service.AiConfigService
+ */
 @Data
 @TableName(value = "user_ai_configs", autoResultMap = true)
 public class AiConfig {

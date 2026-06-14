@@ -1,13 +1,12 @@
 package com.southcollege.exam.controller;
 
-import com.southcollege.exam.annotation.RequireRole;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.southcollege.exam.dto.request.AnnouncementSaveRequest;
 import com.southcollege.exam.dto.request.PageRequest;
 import com.southcollege.exam.dto.response.AnnouncementResponse;
 import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.dto.response.Result;
 import com.southcollege.exam.entity.Announcement;
-import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.service.AnnouncementService;
 import com.southcollege.exam.utils.SecurityUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,7 +35,7 @@ public class AnnouncementController {
 
     @Operation(summary = "获取公告列表", description = "根据用户角色获取可见的公告列表")
     @GetMapping
-    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER, RoleEnum.STUDENT})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER', 'STUDENT')")
     public Result<List<AnnouncementResponse>> list(HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
         String userRole = SecurityUtil.getCurrentUserRole(request);
@@ -47,7 +46,7 @@ public class AnnouncementController {
 
     @Operation(summary = "分页查询公告", description = "支持关键字搜索和状态筛选")
     @GetMapping("/page")
-    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER, RoleEnum.STUDENT})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER', 'STUDENT')")
     public Result<PageResult<AnnouncementResponse>> page(
             @Valid PageRequest pageRequest,
             @Parameter(description = "搜索关键字") @RequestParam(required = false) String keyword,
@@ -61,11 +60,10 @@ public class AnnouncementController {
 
     @Operation(summary = "获取公告详情", description = "根据ID获取公告详细信息")
     @GetMapping("/{id}")
-    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER, RoleEnum.STUDENT})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER', 'STUDENT')")
     public Result<AnnouncementResponse> getById(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        Announcement announcement = announcementService.getVisibleAnnouncementById(id, userId, userRole);
+        Announcement announcement = announcementService.getVisibleAnnouncementById(id, userId);
         if (announcement != null) {
             announcementService.fillPublisherNames(List.of(announcement));
         }
@@ -74,48 +72,26 @@ public class AnnouncementController {
 
     @Operation(summary = "创建公告", description = "发布一条新的系统公告")
     @PostMapping
-    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
     public Result<Boolean> save(@Valid @RequestBody AnnouncementSaveRequest announcementSaveRequest, HttpServletRequest request) {
         Long publisherId = SecurityUtil.getCurrentUserId(request);
-        Announcement announcement = new Announcement();
-        announcement.setTitle(announcementSaveRequest.getTitle());
-        announcement.setContent(announcementSaveRequest.getContent());
-        if (announcementSaveRequest.getIsPinned() != null && announcementSaveRequest.getIsPinned()) {
-            announcement.setPriority("HIGH");
-        }
-        if (announcementSaveRequest.getStatus() != null) {
-            announcement.setStatus(announcementSaveRequest.getStatus());
-        }
-        announcementService.prepareForCreate(announcement, publisherId);
-        return Result.success(announcementService.save(announcement));
+        return Result.success(announcementService.createAnnouncement(announcementSaveRequest, publisherId));
     }
 
     @Operation(summary = "更新公告", description = "修改指定的公告内容")
     @PutMapping("/{id}")
-    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
     public Result<Boolean> update(@PathVariable Long id, @Valid @RequestBody AnnouncementSaveRequest announcementSaveRequest, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        Announcement announcement = new Announcement();
-        announcement.setTitle(announcementSaveRequest.getTitle());
-        announcement.setContent(announcementSaveRequest.getContent());
-        if (announcementSaveRequest.getIsPinned() != null && announcementSaveRequest.getIsPinned()) {
-            announcement.setPriority("HIGH");
-        }
-        if (announcementSaveRequest.getStatus() != null) {
-            announcement.setStatus(announcementSaveRequest.getStatus());
-        }
-        announcementService.prepareForUpdate(id, announcement, userId, userRole);
-        return Result.success(announcementService.updateById(announcement));
+        return Result.success(announcementService.updateAnnouncement(id, announcementSaveRequest, userId));
     }
 
     @Operation(summary = "删除公告", description = "删除指定的系统公告")
     @DeleteMapping("/{id}")
-    @RequireRole({RoleEnum.ADMIN, RoleEnum.TEACHER})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
     public Result<Boolean> delete(@PathVariable Long id, HttpServletRequest request) {
         Long userId = SecurityUtil.getCurrentUserId(request);
-        String userRole = SecurityUtil.getCurrentUserRole(request);
-        announcementService.checkOwnership(id, userId, userRole);
+        announcementService.checkOwnership(id, userId);
         return Result.success(announcementService.removeById(id));
     }
 }

@@ -160,6 +160,21 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 课程详情页面组件
+ * 
+ * 展示单个课程的完整信息，根据用户角色提供不同功能：
+ * - 课程基本信息（名称、代码、封面、教师、学分、状态、截止日期、描述）
+ * - 学生视图：加入/退出课程、预览或参加课程考试
+ * - 教师/管理员视图：编辑课程信息、删除课程、查看课程成员
+ * - 课程成员列表（仅教师/管理员和已加入学生可见）
+ * - 课程考试列表（与 ExamList 共享考试状态逻辑）
+ * 
+ * 特殊处理：
+ * - 学生未加入课程时可通过活跃课程列表预览基础信息（降级查询）
+ * - 使用 watchEffect 自动加载成员和考试数据
+ */
+
 import { ref, reactive, computed, onMounted, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'

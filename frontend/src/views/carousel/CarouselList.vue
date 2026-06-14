@@ -12,7 +12,7 @@
     <div class="search-bar">
       <el-form :model="searchForm" label-width="80px">
         <el-form-item label="关键字">
-          <el-input v-model="searchForm.keyword" placeholder="轮播图标题" clearable @input="handleKeywordInput" class="search-control" />
+          <el-input v-model="searchForm.keyword" placeholder="轮播图标题" clearable class="search-control" />
         </el-form-item>
         <el-form-item label="状态">
           <div class="filter-tabs">
@@ -110,6 +110,18 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 轮播图管理页面组件
+ * 
+ * 仅管理员可访问，管理首页轮播图：
+ * - 轮播图卡片列表（以网格布局展示预览图、标题、状态、排序、跳转链接、描述）
+ * - 按关键字标题搜索、按状态（活跃/禁用）筛选
+ * - 创建/编辑轮播图：标题、图片URL、跳转链接、描述、排序值、状态
+ * - 删除轮播图（带确认弹窗）
+ * - 图片加载失败时显示 SVG 占位图
+ * - 列表按 sortOrder 升序排列
+ */
+
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { carouselApi } from '@/api/carousel'
@@ -185,14 +197,10 @@ async function loadCarousels() {
     const res = await carouselApi.list()
     carousels.value = res.data
   } catch (error) {
-    ElMessage.error('加载轮播图失败')
+    ElMessage.error(getErrorMessage(error, '加载轮播图失败'))
   } finally {
     loading.value = false
   }
-}
-
-function handleKeywordInput() {
-  // 关键字输入时，使用计算属性自动过滤
 }
 
 function handleStatusChange(value: string) {

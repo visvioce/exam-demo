@@ -127,7 +127,7 @@
             {{ currentQuestion.correctAnswer }}
           </div>
           <div v-else-if="currentQuestion.type === 'MULTIPLE_CHOICE'">
-            {{ formatCorrectAnswer(currentQuestion.correctAnswer) }}
+            {{ formatAnswer(currentQuestion.correctAnswer) }}
           </div>
           <div v-else-if="currentQuestion.type === 'FILL_BLANK'" class="view-fill-blank-answer">
             <template v-if="Array.isArray(currentQuestion.correctAnswer)">
@@ -378,6 +378,23 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 题库管理页面组件
+ * 
+ * 教师/管理员的题目管理核心页面，包含：
+ * ● 题目列表 - 分页展示，按类型/难度/学科筛选
+ * ● 手动出题 - 支持单选题、多选题、判断题、填空题、简答题五种题型
+ * ● AI 智能出题 - 通过 SSE 流式生成题目，左右分栏预览与配置
+ *   - 左侧：题目预览区，实时展示生成结果
+ *   - 右侧：配置面板（学科、题型、难度、数量、额外要求）
+ *   - 下方：AI 思考过程实时展示区（打字机效果）
+ *   - 支持逐题编辑后保存或一键全部保存
+ * ● 题目查看/编辑/删除
+ * ● 权限控制：仅题目创建者可编辑/删除
+ * 
+ * 填空题支持多个空的答案编辑，判断题自动规范化答案格式。
+ */
+
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRoute, useRouter } from 'vue-router'
@@ -387,6 +404,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, MagicStick, Check, Document, Setting } from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/utils/error'
 import { sanitizeHtml, sanitizeAndTruncate } from '@/utils/sanitize'
+import { getTypeName, getTypeColor, getDifficultyName, getDifficultyColor, formatAnswer } from '@/utils/format'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { Question, QuestionOption, ScoringCriterion } from '@/types'
 import ActionButtons from '@/components/ActionButtons.vue'
@@ -514,58 +532,7 @@ function clearQuestionRouteState() {
   router.replace({ name: 'QuestionList' })
 }
 
-function getTypeName(type: string) {
-  const map: Record<string, string> = {
-    SINGLE_CHOICE: '单选题',
-    MULTIPLE_CHOICE: '多选题',
-    TRUE_FALSE: '判断题',
-    FILL_BLANK: '填空题',
-    ESSAY: '简答题'
-  }
-  return map[type] || type
-}
-
-function getTypeColor(type: string) {
-  const map: Record<string, string> = {
-    SINGLE_CHOICE: 'info',
-    MULTIPLE_CHOICE: 'info',
-    TRUE_FALSE: 'info',
-    FILL_BLANK: 'info',
-    ESSAY: 'info'
-  }
-  return map[type] || undefined
-}
-
-function getDifficultyName(difficulty: string) {
-  const map: Record<string, string> = {
-    EASY: '简单',
-    MEDIUM: '中等',
-    HARD: '困难'
-  }
-  return map[difficulty] || difficulty
-}
-
-function getDifficultyColor(difficulty: string) {
-  const map: Record<string, string> = {
-    EASY: 'info',
-    MEDIUM: 'info',
-    HARD: 'primary'
-  }
-  return map[difficulty] || undefined
-}
-
-function formatCorrectAnswer(answer: unknown): string {
-  if (Array.isArray(answer)) {
-    return answer.join(', ')
-  }
-  if (answer === null || answer === undefined) {
-    return ''
-  }
-  return String(answer)
-}
-
 async function loadQuestions() {
-  loading.value = true
   try {
     const res = await questionApi.page({
       current: pagination.current,
@@ -899,7 +866,7 @@ function handleCloseAiDialog() {
   // 清空流式内容，避免下次打开显示旧内容
   streamContent.value = ''
 }
-
+//开始生成
 async function handleGenerate() {
   if (!aiFormRef.value) return
 

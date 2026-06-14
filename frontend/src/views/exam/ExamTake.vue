@@ -24,7 +24,8 @@
 
     <!-- 题目区域 -->
     <div class="questions-area" v-if="!loading && questions.length > 0">
-      <div v-for="(question, index) in questions" :key="question.id" class="question-card">
+      <div v-for="(question, index) in questions" :key="question.id" class="question-card"
+        :ref="(el: unknown) => { if (el) questionRefs[index] = el as HTMLElement }">
         <div class="question-header">
           <span class="question-index">{{ index + 1 }}.</span>
           <el-tag :type="getTypeColor(question.type)" size="small">{{ getTypeName(question.type) }}</el-tag>
@@ -138,7 +139,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Loading, WarningFilled } from '@element-plus/icons-vue'
 import { sanitizeHtml } from '@/utils/sanitize'
 import { getErrorMessage } from '@/utils/error'
-import { parseAnswerValue, serializeAnswerValue, isAnswerFilled, getTypeName, getTypeColor, type AnswerValue } from '@/utils/format'
+import { parseAnswerValue, serializeAnswerValue, isAnswerFilled, getTypeName, getTypeColor, dayjs, type AnswerValue } from '@/utils/format'
 import type { Exam, QuestionForExam, ExamSession } from '@/types'
 
 const route = useRoute()
@@ -208,11 +209,10 @@ function isAnswered(index: number): boolean {
   return isAnswerFilled(answers.value[index] ?? '')
 }
 
+const questionRefs = ref<(HTMLElement | null)[]>([])
+
 function scrollToQuestion(index: number) {
-  const cards = document.querySelectorAll('.question-card')
-  if (cards[index]) {
-    cards[index].scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
+  questionRefs.value[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 // 获取填空题的空数（使用后端返回的 blankCount 字段）
@@ -371,7 +371,7 @@ function restoreFromLocal() {
             }
           }
         })
-        ElMessage.success(`已恢复 ${new Date(parsed.savedAt).toLocaleTimeString()} 保存的答案`)
+        ElMessage.success(`已恢复 ${dayjs(parsed.savedAt).format('HH:mm:ss')} 保存的答案`)
         return true
       }
     }
@@ -432,11 +432,7 @@ function stopAutoSave() {
 // 格式化最后保存时间
 const formattedLastSaveTime = computed(() => {
   if (!lastSaveTime.value) return null
-  return lastSaveTime.value.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
+  return dayjs(lastSaveTime.value).format('HH:mm:ss')
 })
 
 async function handleSubmit() {

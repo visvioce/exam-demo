@@ -5,6 +5,9 @@ import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * AI 配置响应 DTO
+ */
 @Data
 public class AiConfigResponse {
 

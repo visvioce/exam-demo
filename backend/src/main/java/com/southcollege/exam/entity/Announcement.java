@@ -10,6 +10,13 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 公告实体
+ * <p>表示系统中的公告通知，支持按类型和优先级分类。
+ * 公告由管理员或教师发布，可指定发布时间和状态，通过 MyBatis-Plus 逻辑删除实现软删除。</p>
+ *
+ * @see com.southcollege.exam.service.AnnouncementService
+ */
 @Data
 @TableName("announcements")
 public class Announcement {

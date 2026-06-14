@@ -5,6 +5,9 @@ import jakarta.validation.constraints.Size;
 import com.southcollege.exam.validator.ValidPassword;
 import lombok.Data;
 
+/**
+ * 修改密码请求 DTO
+ */
 @Data
 public class ChangePasswordRequest {
 

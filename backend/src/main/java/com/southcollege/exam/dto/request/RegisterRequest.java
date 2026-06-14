@@ -6,6 +6,9 @@ import jakarta.validation.constraints.Size;
 import com.southcollege.exam.validator.ValidPassword;
 import lombok.Data;
 
+/**
+ * 注册请求 DTO
+ */
 @Data
 public class RegisterRequest {
 

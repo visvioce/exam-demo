@@ -6,6 +6,9 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+/**
+ * 自动组卷请求 DTO
+ */
 @Data
 public class AutoGeneratePaperRequest {
 

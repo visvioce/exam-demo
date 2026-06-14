@@ -4,6 +4,9 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+/**
+ * 更新用户请求 DTO（管理员用）
+ */
 @Data
 public class UserUpdateRequest {
 

@@ -31,6 +31,17 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 操作按钮组组件
+ *
+ * 通用的列表行操作按钮组，包含查看、编辑、删除三个按钮
+ * 通过 props 控制每个按钮的显示/隐藏
+ *
+ * @example
+ * ```vue
+ * <ActionButtons :show-delete="isAdmin" @view="handleView" @edit="handleEdit" @delete="handleDelete" />
+ * ```
+ */
 import { View, Edit, Delete } from '@element-plus/icons-vue'
 import IconActionButton from './IconActionButton.vue'
 

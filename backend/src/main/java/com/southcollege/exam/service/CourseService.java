@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.southcollege.exam.dto.request.CourseSaveRequest;
 import com.southcollege.exam.dto.request.PageRequest;
 import com.southcollege.exam.dto.response.PageResult;
 import com.southcollege.exam.dto.response.CourseResponse;
@@ -16,11 +17,11 @@ import com.southcollege.exam.entity.User;
 import com.southcollege.exam.enums.RoleEnum;
 import com.southcollege.exam.exception.BusinessException;
 import com.southcollege.exam.mapper.CourseMapper;
+import com.southcollege.exam.mapstruct.CourseDtoMapper;
 import com.southcollege.exam.service.ExamSessionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,13 +42,16 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
     private final UserService userService;
     private final ExamService examService;
     private final ExamSessionService examSessionService;
+    private final CourseDtoMapper courseDtoMapper;
 
     public CourseService(CourseMemberService courseMemberService, UserService userService,
-                         @Lazy ExamService examService, @Lazy ExamSessionService examSessionService) {
+                         @Lazy ExamService examService, @Lazy ExamSessionService examSessionService,
+                         CourseDtoMapper courseDtoMapper) {
         this.courseMemberService = courseMemberService;
         this.userService = userService;
         this.examService = examService;
         this.examSessionService = examSessionService;
+        this.courseDtoMapper = courseDtoMapper;
     }
 
     /**
@@ -57,6 +61,15 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
         List<Course> courses = lambdaQuery().eq(Course::getTeacherId, teacherId).list();
         fillTeacherNames(courses);
         return courses;
+    }
+
+    /**
+     * 统计指定教师创建的课程数量
+     * @param teacherId 教师ID
+     * @return 课程数量
+     */
+    public long countByTeacherId(Long teacherId) {
+        return lambdaQuery().eq(Course::getTeacherId, teacherId).count();
     }
 
     /**
@@ -266,11 +279,7 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
     /**
      * 校验课程操作权限：管理员和教师权限相同，只能操作自己的课程
      */
-    public void checkOwnership(Long courseId, Long userId, String userRole) {
-        RoleEnum role = RoleEnum.fromCode(userRole);
-        if (!role.hasPermission(RoleEnum.TEACHER)) {
-            throw new BusinessException("无权操作该课程");
-        }
+    public void checkOwnership(Long courseId, Long userId) {
         Course course = getById(courseId);
         if (course == null) {
             throw new BusinessException("课程不存在");
@@ -281,23 +290,47 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
     }
 
     /**
+     * 创建课程
+     * @param request 课程创建请求
+     * @param teacherId 教师ID
+     * @return 是否成功
+     */
+    @Transactional
+    public boolean createCourse(CourseSaveRequest request, Long teacherId) {
+        Course course = new Course();
+        course.setName(request.getName());
+        course.setCode(request.getCode());
+        course.setDescription(request.getDescription());
+        course.setCoverUrl(request.getCoverUrl());
+        course.setTeacherId(teacherId);
+        course.setCredits(request.getCredits() != null ? request.getCredits() : new java.math.BigDecimal("1.0"));
+        course.setStatus("ACTIVE");
+        return save(course);
+    }
+
+    /**
      * 更新课程：权限校验 + 保留原创建教师不变
      *
      * @param id       课程ID
-     * @param course   更新的课程信息
+     * @param request  更新的课程信息
      * @param userId   操作者ID
      * @param userRole 操作者角色
      * @return 是否成功
      */
     @Transactional
-    public boolean updateCourse(Long id, Course course, Long userId, String userRole) {
-        checkOwnership(id, userId, userRole);
+    public boolean updateCourse(Long id, CourseSaveRequest request, Long userId) {
+        checkOwnership(id, userId);
 
         Course originalCourse = getById(id);
         if (originalCourse == null) {
             throw new BusinessException("课程不存在");
         }
 
+        Course course = new Course();
+        course.setName(request.getName());
+        course.setCode(request.getCode());
+        course.setDescription(request.getDescription());
+        course.setCoverUrl(request.getCoverUrl());
         course.setId(id);
         course.setTeacherId(originalCourse.getTeacherId());
 
@@ -325,19 +358,14 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
      * @param status          课程状态筛选
      * @param keyword         搜索关键词（匹配课程名称和编号）
      * @param currentUserId   当前用户ID
-     * @param currentUserRole 当前用户角色
      * @return 分页结果，包含教师姓名
      */
     public PageResult<Course> page(PageRequest pageRequest, Long teacherId, String status, String keyword,
-                                    Long currentUserId, String currentUserRole) {
+                                    Long currentUserId) {
         Page<Course> page = new Page<>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<Course> wrapper = new LambdaQueryWrapper<>();
 
         // 管理员和教师权限相同：只能查看自己创建的课程
-        RoleEnum role = RoleEnum.fromCode(currentUserRole);
-        if (!role.hasPermission(RoleEnum.TEACHER)) {
-            return PageResult.empty(pageRequest.getCurrent(), pageRequest.getSize());
-        }
         if (teacherId != null && !teacherId.equals(currentUserId)) {
             return PageResult.empty(pageRequest.getCurrent(), pageRequest.getSize());
         }
@@ -422,35 +450,16 @@ public class CourseService extends ServiceImpl<CourseMapper, Course> {
     }
 
     public CourseResponse convertToResponse(Course course) {
-        if (course == null) {
-            return null;
-        }
-        CourseResponse response = new CourseResponse();
-        BeanUtils.copyProperties(course, response);
-        return response;
+        if (course == null) return null;
+        return courseDtoMapper.toResponse(course);
     }
 
     public List<CourseResponse> convertToResponses(List<Course> courses) {
-        if (courses == null || courses.isEmpty()) {
-            return List.of();
-        }
-        return courses.stream()
-                .map(this::convertToResponse)
-                .toList();
+        if (courses == null || courses.isEmpty()) return List.of();
+        return courseDtoMapper.toResponseList(courses);
     }
 
     public PageResult<CourseResponse> convertToPageResult(PageResult<Course> pageResult) {
-        if (pageResult == null) {
-            return PageResult.empty(1, 10);
-        }
-        PageResult<CourseResponse> response = new PageResult<>();
-        response.setRecords(convertToResponses(pageResult.getRecords()));
-        response.setTotal(pageResult.getTotal());
-        response.setSize(pageResult.getSize());
-        response.setCurrent(pageResult.getCurrent());
-        response.setPages(pageResult.getPages());
-        response.setHasNext(pageResult.getHasNext());
-        response.setHasPrevious(pageResult.getHasPrevious());
-        return response;
+        return PageResult.map(pageResult, this::convertToResponses);
     }
 }

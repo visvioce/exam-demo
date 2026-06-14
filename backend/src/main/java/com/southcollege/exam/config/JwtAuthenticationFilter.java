@@ -35,6 +35,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 // Collections 工具类，用于创建单元素集合，在这里快速构建权限列表
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * JWT认证过滤器，继承 OncePerRequestFilter 确保每次请求只执行一次过滤。
@@ -68,7 +70,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter { // 定义类
                                     FilterChain filterChain) // 过滤器链，用于继续传递请求
             throws ServletException, IOException { // 声明可能抛出的异常
 
-        // 如果是 CORS 预检请求（OPTIONS），直接放行，不做任何拦截
+        // 如果是 ，直接放行，不做任何拦截
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) { // 比较请求方法，忽略大小写
             // 将请求和响应直接交给下一个过滤器或目标资源处理，不执行后续认证逻辑
             filterChain.doFilter(request, response);
@@ -123,13 +125,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter { // 定义类
             request.setAttribute("role", role); // 存入用户角色
 
             // 构建 Spring Security 的认证对象，表示当前请求的用户身份和权限
+            Map<String, String> details = new HashMap<>();
+            details.put("username", username);
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(
-                            claims.getSubject(), // 主体信息，通常用用户ID或用户名；这里使用 Token 的 subject（用户ID的字符串形式）
+                            claims.getSubject(), // 主体信息，使用 Token 的 subject（用户ID的字符串形式）
                             null,                // 凭证，已经通过 JWT 校验，可设为 null
                             // 构造权限列表：将角色字符串转换为 "ROLE_" 前缀的授权对象
                             Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role))
                     );
+            authentication.setDetails(details);
             // 将认证对象存入 Spring Security 的安全上下文，表明当前线程中已通过认证
             SecurityContextHolder.getContext().setAuthentication(authentication);
         } catch (Exception e) { // 捕获任何解析、校验或数据库查询过程中出现的异常

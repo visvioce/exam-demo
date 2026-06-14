@@ -8,6 +8,9 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.util.List;
 
+/**
+ * 主观题评分请求 DTO
+ */
 @Data
 public class GradeSubjectiveRequest {
 
